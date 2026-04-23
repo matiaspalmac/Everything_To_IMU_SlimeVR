@@ -22,12 +22,16 @@ public partial class MainWindow : FluentWindow
         AppServices.Instance.TrackerDisconnected += OnTrackerDisconnected;
     }
 
+    private static bool NotificationsOn() =>
+        AppServices.Instance.Configuration?.NotificationsEnabled ?? true;
+
     private void OnBatteryLow(object? sender, BatteryLowEventArgs e)
     {
         Dispatcher.Invoke(() =>
         {
             try
             {
+                if (!NotificationsOn()) return;
                 TrayIcon.ShowNotification(
                     title: "Tracker battery low",
                     message: $"{e.TrackerName} at {e.Percent}% — plug in or swap batteries soon.");
@@ -44,6 +48,7 @@ public partial class MainWindow : FluentWindow
         {
             try
             {
+                if (!NotificationsOn()) return;
                 if (IsActive && WindowState != WindowState.Minimized) return;
                 TrayIcon.ShowNotification(title: "Tracker connected", message: e.TrackerName);
             }
@@ -57,6 +62,7 @@ public partial class MainWindow : FluentWindow
         {
             try
             {
+                if (!NotificationsOn()) return;
                 if (IsActive && WindowState != WindowState.Minimized) return;
                 TrayIcon.ShowNotification(title: "Tracker disconnected", message: e.TrackerName);
             }

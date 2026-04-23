@@ -50,7 +50,7 @@ public sealed class AppServices
 
     private readonly Dictionary<IBodyTracker, DateTime> _lastLowBatteryAlert = new();
     private static readonly TimeSpan LowBatteryAlertCooldown = TimeSpan.FromMinutes(10);
-    private const float LowBatteryThreshold = 0.15f;
+    private float LowBatteryThreshold => Configuration?.BatteryLowThreshold ?? 0.15f;
 
     private bool _initialized;
 
@@ -81,7 +81,7 @@ public sealed class AppServices
 
     public void Shutdown()
     {
-        try { Configuration?.SaveConfig(); } catch { }
+        try { Configuration?.FlushPendingSave(); } catch { }
         // NOTE: GenericTrackerManager has no Dispose — legacy design.
         // Daemon loops (Task.Run + while(!disposed)) terminate at process exit.
     }

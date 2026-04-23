@@ -53,6 +53,24 @@
                 </StackPanel>
             </Border>
 
+            <Border Padding="16" CornerRadius="8" Margin="0,0,0,16"
+                    Background="{DynamicResource ControlFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource ControlElevationBorderBrush}"
+                    BorderThickness="1">
+                <StackPanel>
+                    <ui:TextBlock Text="Notifications" FontTypography="Subtitle" Margin="0,0,0,12" />
+                    <ui:ToggleSwitch Content="Tray notifications"
+                                     IsChecked="{Binding NotificationsEnabled}" Margin="0,0,0,12" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Low battery threshold: " />
+                        <TextBlock Text="{Binding BatteryLowPercent}" FontWeight="SemiBold" />
+                        <TextBlock Text="%" />
+                    </StackPanel>
+                    <Slider Minimum="5" Maximum="30" Value="{Binding BatteryLowPercent}"
+                            TickFrequency="5" IsSnapToTickEnabled="True" />
+                </StackPanel>
+            </Border>
+
             <Border Padding="16" CornerRadius="8"
                     Background="{DynamicResource ControlFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource ControlElevationBorderBrush}"

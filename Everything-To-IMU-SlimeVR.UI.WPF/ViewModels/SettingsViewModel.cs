@@ -16,6 +16,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _wiiPollingRate = 32;
     [ObservableProperty] private bool _simulateThighs;
     [ObservableProperty] private bool _audioHapticsActive = true;
+    [ObservableProperty] private bool _notificationsEnabled = true;
+    [ObservableProperty] private int _batteryLowPercent = 15;
 
     public string AppVersion => Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "0.0.0";
 
@@ -65,6 +67,8 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnWiiPollingRateChanged(int value) => Persist(c => c.WiiPollingRate = (byte)Math.Clamp(value, 1, 255));
     partial void OnSimulateThighsChanged(bool value) => Persist(c => c.SimulatesThighs = value);
     partial void OnAudioHapticsActiveChanged(bool value) => Persist(c => c.AudioHapticsActive = value);
+    partial void OnNotificationsEnabledChanged(bool value) => Persist(c => c.NotificationsEnabled = value);
+    partial void OnBatteryLowPercentChanged(int value) => Persist(c => c.BatteryLowThreshold = Math.Clamp(value, 1, 50) / 100f);
 
     [RelayCommand]
     private void OpenLogs()
@@ -94,6 +98,8 @@ public partial class SettingsViewModel : ObservableObject
             WiiPollingRate = cfg.WiiPollingRate;
             SimulateThighs = cfg.SimulatesThighs;
             AudioHapticsActive = cfg.AudioHapticsActive;
+            NotificationsEnabled = cfg.NotificationsEnabled;
+            BatteryLowPercent = (int)Math.Round(cfg.BatteryLowThreshold * 100);
             var currentMode = ThemeManager.Parse(cfg.Theme);
             _selectedTheme = Themes.FirstOrDefault(t => t.Mode == currentMode) ?? Themes[0];
             _selectedLanguage = Languages.FirstOrDefault(l => l.Code == cfg.Language) ?? Languages[0];
@@ -109,6 +115,6 @@ public partial class SettingsViewModel : ObservableObject
     {
         var cfg = AppServices.Instance.Configuration;
         if (cfg == null) return;
-        try { mutate(cfg); cfg.SaveConfig(); } catch { }
+        try { mutate(cfg); cfg.SaveDebounced(); } catch { }
     }
 }
