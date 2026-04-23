@@ -14,3 +14,5 @@ Companions/3DSClient/application/3DS-2DS Client
 publish/
 # Native lib backups produced by our rebuild scripts (vqf, JoyShockLibrary).
 *.bak
+# Local-only planning doc; not part of the public repo.
+ROADMAP.md
