@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Text;
 using Everything_To_IMU_SlimeVR.AudioHaptics;
 using Everything_To_IMU_SlimeVR.Osc;
+using Everything_To_IMU_SlimeVR.Tracking;
 using LucHeart.CoreOSC;
 
 namespace Everything_To_IMU_SlimeVR.Osc
@@ -204,6 +205,7 @@ namespace Everything_To_IMU_SlimeVR.Osc
                 parameterList.Add(param);
                 Debug.WriteLine(param);
             }
+            if (TryHandleDualSenseTrigger(param, message)) return [];
             foreach (var source in _hapticsSources)
             {
                 if (source.IsSource(param, message))
@@ -213,6 +215,32 @@ namespace Everything_To_IMU_SlimeVR.Osc
             }
 
             return [];
+        }
+
+        /// <summary>
+        /// Maps VRChat avatar parameters DS5TriggerL / DS5TriggerR (int preset 0..4) to a trigger
+        /// effect on the first connected DualSense. Returns true if the parameter was consumed.
+        /// </summary>
+        private static bool TryHandleDualSenseTrigger(string param, OscMessage message)
+        {
+            DualSenseOutput.TriggerSide? side = param switch
+            {
+                "DS5TriggerL" => DualSenseOutput.TriggerSide.Left,
+                "DS5TriggerR" => DualSenseOutput.TriggerSide.Right,
+                _ => null,
+            };
+            if (side == null) return false;
+            if (message.Arguments.Length == 0) return true;
+            int preset = message.Arguments[0] switch
+            {
+                int i => i,
+                float f => (int)f,
+                bool b => b ? 1 : 0,
+                _ => 0,
+            };
+            preset = Math.Clamp(preset, 0, 4);
+            try { DualSenseOutput.ApplyTrigger(0, side.Value, (DualSenseOutput.TriggerPreset)preset); } catch { }
+            return true;
         }
 
         public void Dispose()
