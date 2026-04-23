@@ -1,0 +1,295 @@
+<Page x:Class="Everything_To_IMU_SlimeVR.UI.Views.DebugPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      xmlns:ctl="clr-namespace:Everything_To_IMU_SlimeVR.UI.Controls"
+      xmlns:vm="clr-namespace:Everything_To_IMU_SlimeVR.UI.ViewModels"
+      xmlns:beh="clr-namespace:Everything_To_IMU_SlimeVR.UI.Behaviors"
+      Title="Debug">
+    <Page.DataContext>
+        <vm:DebugViewModel />
+    </Page.DataContext>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                  beh:ScrollViewerHelper.CaptureMouseWheel="True">
+    <Grid Margin="24" MinHeight="520">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="260" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ui:TextBlock Grid.Column="0" Text="{DynamicResource Str.Debug.Title}" FontTypography="Title" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="2" MinWidth="240"
+                      ItemsSource="{Binding AvailableTrackers}"
+                      SelectedItem="{Binding SelectedTrackerItem, Mode=TwoWay}" />
+        </Grid>
+
+        <Border Grid.Row="1" Style="{StaticResource CardCompact}" Margin="0,0,0,12">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <ui:TextBlock Text="Tracking data" FontWeight="SemiBold" FontSize="13" />
+                    <ui:TextBlock Text=" · " Foreground="{DynamicResource TextTertiaryBrush}" FontSize="13" />
+                    <ui:TextBlock Text="{Binding TrackerName}" FontWeight="SemiBold" FontSize="13"
+                                  Foreground="{DynamicResource AccentPrimaryBrush}" />
+                </StackPanel>
+
+                <!-- Rotation (deg) -->
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{StaticResource DataLabel}" Text="Rotation (°)" />
+                    <UniformGrid Grid.Column="1" Columns="3">
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizXBrush}"
+                                   Text="{Binding EuDegX, StringFormat={}{0:+0.0;-0.0; 0.0}}" />
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizYBrush}"
+                                   Text="{Binding EuDegY, StringFormat={}{0:+0.0;-0.0; 0.0}}" />
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizZBrush}"
+                                   Text="{Binding EuDegZ, StringFormat={}{0:+0.0;-0.0; 0.0}}" />
+                    </UniformGrid>
+                </Grid>
+
+                <!-- Rotation (rad) -->
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{StaticResource DataLabel}" Text="Rotation (rad)" />
+                    <UniformGrid Grid.Column="1" Columns="3">
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizXBrush}"
+                                   Text="{Binding EuX, StringFormat={}{0:+0.000;-0.000; 0.000}}" />
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizYBrush}"
+                                   Text="{Binding EuY, StringFormat={}{0:+0.000;-0.000; 0.000}}" />
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizZBrush}"
+                                   Text="{Binding EuZ, StringFormat={}{0:+0.000;-0.000; 0.000}}" />
+                    </UniformGrid>
+                </Grid>
+
+                <!-- Accel (g) -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Style="{StaticResource DataLabel}" Text="Accel (g)" />
+                    <UniformGrid Grid.Column="1" Columns="3">
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizXBrush}"
+                                   Text="{Binding AccX, StringFormat={}{0:+0.00;-0.00; 0.00}}" />
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizYBrush}"
+                                   Text="{Binding AccY, StringFormat={}{0:+0.00;-0.00; 0.00}}" />
+                        <TextBlock Style="{StaticResource DataValue}" TextAlignment="Center"
+                                   Foreground="{DynamicResource VizZBrush}"
+                                   Text="{Binding AccZ, StringFormat={}{0:+0.00;-0.00; 0.00}}" />
+                    </UniformGrid>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" CornerRadius="8" Margin="0,0,0,12" Padding="10"
+                Background="{DynamicResource SurfaceL1Brush}"
+                BorderBrush="{DynamicResource StrokeSubtleBrush}"
+                BorderThickness="1"
+                ClipToBounds="True">
+            <Grid>
+                <ctl:LiveChart x:Name="Chart"
+                               WindowSize="240"
+                               MinValue="-3.2"
+                               MaxValue="3.2"
+                               StrokeX="{DynamicResource VizXBrush}"
+                               StrokeY="{DynamicResource VizYBrush}"
+                               StrokeZ="{DynamicResource VizZBrush}"
+                               GridBrush="{DynamicResource StrokeSubtleBrush}"
+                               IsPaused="{Binding IsPaused}" />
+
+                <!-- Debug chips (stats) -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6,0,0,4">
+                    <Border CornerRadius="4" Padding="6,2" Margin="0,0,4,0"
+                            Background="{DynamicResource SurfaceL1Brush}"
+                            BorderBrush="{DynamicResource StrokeSubtleBrush}" BorderThickness="1">
+                        <TextBlock Text="{Binding PeakText}" FontFamily="Consolas" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    <Border CornerRadius="4" Padding="6,2" Margin="0,0,4,0"
+                            Background="{DynamicResource SurfaceL1Brush}"
+                            BorderBrush="{DynamicResource StrokeSubtleBrush}" BorderThickness="1">
+                        <TextBlock Text="{Binding JitterText}" FontFamily="Consolas" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    <Border CornerRadius="4" Padding="6,2"
+                            BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource SurfaceL1Brush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource StrokeSubtleBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding RateWarning}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource WarningBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding RateText}" FontFamily="Consolas" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    <Border CornerRadius="4" Padding="6,2" Margin="4,0,0,0"
+                            Background="{DynamicResource SurfaceL1Brush}"
+                            BorderBrush="{DynamicResource StrokeSubtleBrush}" BorderThickness="1">
+                        <TextBlock Text="{Binding PacketsSentText}" FontFamily="Consolas" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    <Border CornerRadius="4" Padding="6,2" Margin="4,0,0,0"
+                            BorderThickness="1">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource SurfaceL1Brush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource StrokeSubtleBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasPacketDrops}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding PacketDropsText}" FontFamily="Consolas" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    <Border CornerRadius="4" Padding="6,2" Margin="4,0,0,0"
+                            Background="{DynamicResource SurfaceL1Brush}"
+                            BorderBrush="{DynamicResource StrokeSubtleBrush}" BorderThickness="1">
+                        <TextBlock Text="{Binding ServerReachableText}" FontFamily="Consolas" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                </StackPanel>
+
+                <!-- Spike alert overlay -->
+                <Border CornerRadius="6" BorderThickness="2"
+                        BorderBrush="{DynamicResource ErrorBrush}"
+                        IsHitTestVisible="False"
+                        Visibility="{Binding SpikeAlert, Converter={StaticResource BoolToVisibility}}" />
+
+                <!-- Disconnected toast -->
+                <Border CornerRadius="6" Padding="10,6"
+                        Background="#E0000000"
+                        BorderBrush="{DynamicResource ErrorBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0"
+                        Visibility="{Binding IsDisconnected, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Warning24" Foreground="{DynamicResource ErrorBrush}" Margin="0,0,6,0" />
+                        <TextBlock Text="{Binding DisconnectedAtText}" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Legend (clickable toggle) -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,6,0">
+                    <ToggleButton x:Name="TogX" IsChecked="True"
+                                  Content="X" Foreground="{DynamicResource VizXBrush}"
+                                  FontWeight="Bold" Margin="0,0,8,0"
+                                  Background="Transparent" BorderThickness="0"
+                                  Cursor="Hand" Padding="4,2"
+                                  ToolTip="Toggle X series" />
+                    <ToggleButton x:Name="TogY" IsChecked="True"
+                                  Content="Y" Foreground="{DynamicResource VizYBrush}"
+                                  FontWeight="Bold" Margin="0,0,8,0"
+                                  Background="Transparent" BorderThickness="0"
+                                  Cursor="Hand" Padding="4,2"
+                                  ToolTip="Toggle Y series" />
+                    <ToggleButton x:Name="TogZ" IsChecked="True"
+                                  Content="Z" Foreground="{DynamicResource VizZBrush}"
+                                  FontWeight="Bold"
+                                  Background="Transparent" BorderThickness="0"
+                                  Cursor="Hand" Padding="4,2"
+                                  ToolTip="Toggle Z series" />
+                </StackPanel>
+
+                <!-- Pause/Clear overlay -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,2,0,0">
+                    <ui:Button Command="{Binding TogglePauseCommand}" Padding="8,3" Margin="0,0,6,0"
+                               ToolTip="Pause/resume chart streaming (numeric readouts keep updating)">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Margin="0,0,4,0">
+                                <ui:SymbolIcon.Style>
+                                    <Style TargetType="ui:SymbolIcon">
+                                        <Setter Property="Symbol" Value="Pause24" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                                <Setter Property="Symbol" Value="Play24" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ui:SymbolIcon.Style>
+                            </ui:SymbolIcon>
+                            <TextBlock>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Pause" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                                <Setter Property="Text" Value="Resume" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </ui:Button>
+                    <ui:Button Command="{Binding ClearChartCommand}"
+                               Icon="{ui:SymbolIcon Delete24}" Content="Clear"
+                               Padding="8,3"
+                               ToolTip="Clear chart buffer" />
+                </StackPanel>
+
+                <!-- Paused overlay banner -->
+                <Border Background="#80000000" CornerRadius="12" Padding="10,4"
+                        HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10"
+                        Visibility="{Binding IsPaused, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Pause24" Foreground="{DynamicResource AccentPrimaryBrush}" Margin="0,0,6,0" />
+                        <TextBlock Text="Paused" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Padding="12" CornerRadius="8" MaxHeight="160"
+                Background="{DynamicResource SurfaceL2Brush}"
+                BorderBrush="{DynamicResource StrokeSubtleBrush}"
+                BorderThickness="1">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding DebugText}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding DebugText}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding DebugText}" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" />
+            </ScrollViewer>
+        </Border>
+    </Grid>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,142 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+
+    <!-- Nav -->
+    <sys:String x:Key="Str.Nav.Trackers">Trackers</sys:String>
+    <sys:String x:Key="Str.Nav.Debug">Depuración</sys:String>
+    <sys:String x:Key="Str.Nav.Osc">OSC</sys:String>
+    <sys:String x:Key="Str.Nav.Haptics">Hápticos</sys:String>
+    <sys:String x:Key="Str.Nav.Settings">Ajustes</sys:String>
+
+    <!-- Status bar -->
+    <sys:String x:Key="Str.Status.SlimeConnected">SlimeVR: conectado</sys:String>
+    <sys:String x:Key="Str.Status.SlimeOffline">SlimeVR: sin conexión</sys:String>
+    <sys:String x:Key="Str.Status.SlimeChecking">SlimeVR: verificando...</sys:String>
+    <sys:String x:Key="Str.Status.OscInPrefix">OSC: in </sys:String>
+    <sys:String x:Key="Str.Status.ControllersPrefix">Controles: </sys:String>
+    <sys:String x:Key="Str.Status.VrcWatching">VRChat log: observando</sys:String>
+    <sys:String x:Key="Str.Status.VrcOff">VRChat log: off</sys:String>
+
+    <!-- Trackers page -->
+    <sys:String x:Key="Str.Trackers.Title">Trackers</sys:String>
+    <sys:String x:Key="Str.Trackers.Devices">Dispositivos</sys:String>
+    <sys:String x:Key="Str.Trackers.Col.Type">Tipo</sys:String>
+    <sys:String x:Key="Str.Trackers.Col.Id">ID</sys:String>
+    <sys:String x:Key="Str.Trackers.Col.Ready">Listo</sys:String>
+    <sys:String x:Key="Str.Trackers.Col.Imu">IMU</sys:String>
+    <sys:String x:Key="Str.Trackers.Col.Haptics">Hápticos</sys:String>
+    <sys:String x:Key="Str.Trackers.RecalibrateAll">Recalibrar todos</sys:String>
+    <sys:String x:Key="Str.Trackers.Selected">Tracker seleccionado</sys:String>
+    <sys:String x:Key="Str.Trackers.PrimaryYaw">Fuente principal de yaw</sys:String>
+    <sys:String x:Key="Str.Trackers.ExtensionYaw">Fuente de yaw extensión (Nunchuck)</sys:String>
+    <sys:String x:Key="Str.Trackers.HapticNode">Nodo háptico asignado</sys:String>
+    <sys:String x:Key="Str.Trackers.Identify">Vibrar</sys:String>
+    <sys:String x:Key="Str.Trackers.Rediscover">Redescubrir</sys:String>
+    <sys:String x:Key="Str.Trackers.Calibrate">Calibrar este tracker</sys:String>
+    <sys:String x:Key="Str.Trackers.NoSelection">Seleccioná un tracker a la izquierda para configurarlo.</sys:String>
+
+    <!-- Debug page -->
+    <sys:String x:Key="Str.Debug.Title">Depuración</sys:String>
+    <sys:String x:Key="Str.Debug.TrackerLabel">Tracker: </sys:String>
+    <sys:String x:Key="Str.Debug.EulerX">Euler X</sys:String>
+    <sys:String x:Key="Str.Debug.EulerY">Euler Y</sys:String>
+    <sys:String x:Key="Str.Debug.EulerZ">Euler Z</sys:String>
+
+    <!-- OSC page -->
+    <sys:String x:Key="Str.Osc.Title">OSC</sys:String>
+    <sys:String x:Key="Str.Osc.Input">Entrada</sys:String>
+    <sys:String x:Key="Str.Osc.Outputs">Salidas</sys:String>
+    <sys:String x:Key="Str.Osc.TargetIp">IP de destino</sys:String>
+    <sys:String x:Key="Str.Osc.InputPort">Puerto de entrada (VRChat → app)</sys:String>
+    <sys:String x:Key="Str.Osc.Apply">Aplicar</sys:String>
+    <sys:String x:Key="Str.Osc.AddOutput">Agregar salida</sys:String>
+    <sys:String x:Key="Str.Osc.NewPortHint">ej. 9002</sys:String>
+
+    <!-- Haptics page -->
+    <sys:String x:Key="Str.Haptics.Title">Hápticos</sys:String>
+    <sys:String x:Key="Str.Haptics.RemoteDevices">Dispositivos hápticos UDP remotos</sys:String>
+    <sys:String x:Key="Str.Haptics.IpHint">ej. 192.168.1.50</sys:String>
+    <sys:String x:Key="Str.Haptics.Add">Agregar</sys:String>
+    <sys:String x:Key="Str.Haptics.Testing">Pruebas</sys:String>
+    <sys:String x:Key="Str.Haptics.PulseAll">Pulso a todos</sys:String>
+    <sys:String x:Key="Str.Haptics.PlayMidi">Reproducir MIDI...</sys:String>
+
+    <!-- Settings page -->
+    <sys:String x:Key="Str.Settings.Title">Ajustes</sys:String>
+    <sys:String x:Key="Str.Settings.PollingRates">Tasas de polling</sys:String>
+    <sys:String x:Key="Str.Settings.Controllers">Controles</sys:String>
+    <sys:String x:Key="Str.Settings.Wiimote">Wiimote</sys:String>
+    <sys:String x:Key="Str.Settings.Tracking">Tracking</sys:String>
+    <sys:String x:Key="Str.Settings.SimulateThighs">Simular muslos (experimental)</sys:String>
+    <sys:String x:Key="Str.Settings.AudioHaptics">Audio a hápticos activo</sys:String>
+    <sys:String x:Key="Str.Settings.Appearance">Apariencia</sys:String>
+    <sys:String x:Key="Str.Settings.Theme">Tema</sys:String>
+    <sys:String x:Key="Str.Settings.ThemeDark">Oscuro</sys:String>
+    <sys:String x:Key="Str.Settings.ThemeLight">Claro</sys:String>
+    <sys:String x:Key="Str.Settings.ThemeSystem">Seguir sistema</sys:String>
+    <sys:String x:Key="Str.Settings.Language">Idioma</sys:String>
+    <sys:String x:Key="Str.Settings.About">Acerca de</sys:String>
+    <sys:String x:Key="Str.Settings.Version">Versión</sys:String>
+    <sys:String x:Key="Str.Settings.AboutLine1">Convierte controles con IMU (DualSense, Wiimote, 3DS, Joycons, Switch Pro) en trackers SlimeVR y dispositivos hápticos.</sys:String>
+    <sys:String x:Key="Str.Settings.Repository">Repositorio</sys:String>
+    <sys:String x:Key="Str.Settings.OpenLogs">Abrir carpeta de la app</sys:String>
+
+    <sys:String x:Key="Str.Common.Close">Cerrar</sys:String>
+
+    <sys:String x:Key="Str.Tray.Show">Mostrar</sys:String>
+    <sys:String x:Key="Str.Tray.Hide">Ocultar</sys:String>
+    <sys:String x:Key="Str.Tray.Exit">Salir</sys:String>
+
+    <sys:String x:Key="Str.Trackers.CalibrateHaptics">Calibrar hápticos</sys:String>
+    <sys:String x:Key="Str.Trackers.ResetMounting">Resetear montaje</sys:String>
+    <sys:String x:Key="Str.Trackers.ResetMountingTooltip">Avisá a SlimeVR cómo está pegado el control al cuerpo. Parate en T-pose con control hacia adelante y apretá.</sys:String>
+    <sys:String x:Key="Str.Haptics.CalibratorTitle">Calibrador háptico</sys:String>
+    <sys:String x:Key="Str.Haptics.CalibratorBody">Movelo para sentir la intensidad aplicada a los hápticos del tracker seleccionado.</sys:String>
+    <sys:String x:Key="Str.Haptics.Intensity">Intensidad</sys:String>
+
+    <sys:String x:Key="Str.Trackers.EmptyTitle">No se detectaron trackers</sys:String>
+    <sys:String x:Key="Str.Trackers.EmptyHint">Conectá un control o iniciá un cliente homebrew.</sys:String>
+    <sys:String x:Key="Str.Trackers.HintTitle">Cómo conectar un control</sys:String>
+    <sys:String x:Key="Str.Trackers.HintMsg">PS5 DualSense: conectá por USB o parealo por Bluetooth. Wiimote: parealo en Bluetooth de Windows como "Nintendo RVL-CNT-01". 3DS/Wii: iniciá el cliente homebrew en el dispositivo.</sys:String>
+    <sys:String x:Key="Str.Trackers.OpenBluetooth">Abrir ajustes Bluetooth</sys:String>
+    <sys:String x:Key="Str.Trackers.RescanDevices">Rescanear dispositivos</sys:String>
+    <sys:String x:Key="Str.Trackers.YawTooltip">Yaw es la rotación sobre el eje vertical. Los IMU solos driftean con el tiempo. Usá referencia del HMD/Cintura para cancelar drift. "Confiar yaw del dispositivo" sólo si tiene magnetómetro.</sys:String>
+    <sys:String x:Key="Str.Trackers.PrimaryYawDesc">Qué tracker se usa para copiar la orientación horizontal. Evita que la rotación se desvíe lentamente de a poco.</sys:String>
+    <sys:String x:Key="Str.Trackers.ExtensionYawDesc">Igual pero para una extensión conectada (ej. Nunchuck). Dejá igual a la primaria si no estás seguro.</sys:String>
+    <sys:String x:Key="Str.Trackers.HapticNodeDesc">Parte del cuerpo donde este control vibra en VRChat cuando algo la toca.</sys:String>
+
+    <!-- Fuentes de yaw -->
+    <sys:String x:Key="Str.Enum.RotationReferenceType.HmdRotation">Rotación del HMD</sys:String>
+    <sys:String x:Key="Str.Enum.RotationReferenceType.WaistRotation">Tracker de cintura</sys:String>
+    <sys:String x:Key="Str.Enum.RotationReferenceType.ChestRotation">Tracker de pecho</sys:String>
+    <sys:String x:Key="Str.Enum.RotationReferenceType.LeftAnkleRotation">Tobillo izquierdo</sys:String>
+    <sys:String x:Key="Str.Enum.RotationReferenceType.RightAnkleRotation">Tobillo derecho</sys:String>
+    <sys:String x:Key="Str.Enum.RotationReferenceType.TrustDeviceYaw">Confiar en yaw del dispositivo</sys:String>
+
+    <!-- Nodos hápticos -->
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightThigh">Muslo derecho</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightCalf">Pantorrilla derecha</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftThigh">Muslo izquierdo</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftCalf">Pantorrilla izquierda</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightUpperArm">Brazo derecho (superior)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightForeArm">Antebrazo derecho</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftUpperArm">Brazo izquierdo (superior)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftForeArm">Antebrazo izquierdo</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.Chest">Pecho</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightFoot">Pie derecho</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftFoot">Pie izquierdo</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightHand">Mano derecha</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftHand">Mano izquierda</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.RightShoulder">Hombro derecho</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.LeftShoulder">Hombro izquierdo</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.Head">Cabeza</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.Hips">Caderas</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.ChestFront">Pecho (frente)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.HipsFront">Caderas (frente)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.ChestBack">Pecho (espalda)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.HipsBack">Caderas (espalda)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.ChestAndHips">Pecho + caderas</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.ChestAndHipsFront">Pecho + caderas (frente)</sys:String>
+    <sys:String x:Key="Str.Enum.HapticNodeBinding.ChestAndHipsBack">Pecho + caderas (espalda)</sys:String>
+</ResourceDictionary>

@@ -1,0 +1,30 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="SurfaceL0Brush" Color="#F7F7F9" />
+    <SolidColorBrush x:Key="SurfaceL1Brush" Color="#F1F1F4" />
+    <SolidColorBrush x:Key="SurfaceL2Brush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="SurfaceL3Brush" Color="#E8E8EC" />
+
+    <SolidColorBrush x:Key="StrokeSubtleBrush" Color="#DEDEE4" />
+    <SolidColorBrush x:Key="StrokeStrongBrush" Color="#B4B4BC" />
+
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1A1A1E" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#50505A" />
+    <SolidColorBrush x:Key="TextTertiaryBrush" Color="#80808A" />
+
+    <SolidColorBrush x:Key="AccentPrimaryBrush" Color="#4A68C8" />
+    <SolidColorBrush x:Key="AccentSecondaryBrush" Color="#C97A1E" />
+
+    <SolidColorBrush x:Key="SuccessBrush" Color="#2B9E4A" />
+    <SolidColorBrush x:Key="WarningBrush" Color="#B37017" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#C83E2E" />
+    <SolidColorBrush x:Key="InfoBrush" Color="#3A55AA" />
+
+    <SolidColorBrush x:Key="VizXBrush" Color="#C83E2E" />
+    <SolidColorBrush x:Key="VizYBrush" Color="#2B9E4A" />
+    <SolidColorBrush x:Key="VizZBrush" Color="#3A55AA" />
+    <SolidColorBrush x:Key="VizBatteryBrush" Color="#B37017" />
+
+
+</ResourceDictionary>

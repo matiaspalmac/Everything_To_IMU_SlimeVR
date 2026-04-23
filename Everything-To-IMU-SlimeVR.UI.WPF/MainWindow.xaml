@@ -1,0 +1,146 @@
+<ui:FluentWindow x:Class="Everything_To_IMU_SlimeVR.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:tb="http://www.hardcodet.net/taskbar"
+        xmlns:local="clr-namespace:Everything_To_IMU_SlimeVR.UI"
+        mc:Ignorable="d"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        Title="Everything To IMU SlimeVR"
+        Width="1100"
+        Height="700"
+        MinWidth="800"
+        MinHeight="500"
+        WindowBackdropType="Mica"
+        ExtendsContentIntoTitleBar="True"
+        WindowStartupLocation="CenterScreen"
+        WindowCornerPreference="Round"
+        Icon="pack://application:,,,/Assets/app-256.png">
+    <ui:FluentWindow.InputBindings>
+        <KeyBinding Key="L" Modifiers="Control" Command="{Binding LaunchSteamVrCommand}" />
+        <KeyBinding Key="D" Modifiers="Control" Command="{Binding OpenSlimeVrDashboardCommand}" />
+        <KeyBinding Key="F1" Command="{Binding ShowShortcutsCommand}" />
+    </ui:FluentWindow.InputBindings>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Everything To IMU SlimeVR">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/Assets/app-256.png" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <ui:NavigationView Grid.Row="1"
+                           x:Name="RootNavigation"
+                           PaneDisplayMode="Left"
+                           OpenPaneLength="200"
+                           IsBackButtonVisible="Collapsed">
+            <ui:NavigationView.MenuItems>
+                <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Trackers}" TargetPageType="{x:Type local:Views.TrackersPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Games24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Debug}" TargetPageType="{x:Type local:Views.DebugPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="DeveloperBoard24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Osc}" TargetPageType="{x:Type local:Views.OscPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Send24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Haptics}" TargetPageType="{x:Type local:Views.HapticsPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Pulse24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.MenuItems>
+            <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Settings}" TargetPageType="{x:Type local:Views.SettingsPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Settings24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.FooterMenuItems>
+        </ui:NavigationView>
+
+        <Border Grid.Row="2" Padding="16,8" BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource StrokeSubtleBrush}"
+                Background="{DynamicResource SurfaceL1Brush}">
+            <Border.Resources>
+                <Style x:Key="StatusChip" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="12" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                </Style>
+                <Style x:Key="StatusSeparator" TargetType="TextBlock">
+                    <Setter Property="Text" Value="·" />
+                    <Setter Property="FontSize" Value="12" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextTertiaryBrush}" />
+                    <Setter Property="Margin" Value="12,0" />
+                </Style>
+            </Border.Resources>
+            <StackPanel Orientation="Horizontal">
+                <Button Command="{Binding RetrySlimeVrCommand}"
+                        ToolTip="{Binding SlimeVrStatusTooltip}"
+                        Cursor="Hand"
+                        Background="Transparent" BorderThickness="0"
+                        Padding="2,0" Margin="-2,0,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="8" Height="8" Fill="{Binding SlimeVrStatusBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SlimeVrStatusText}" Margin="6,0,0,0" Style="{StaticResource StatusChip}" />
+                    </StackPanel>
+                </Button>
+                <TextBlock Style="{StaticResource StatusSeparator}" />
+
+                <Ellipse Width="8" Height="8" Fill="{Binding OscStatusBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding OscStatusText}" Margin="6,0,0,0" Style="{StaticResource StatusChip}" />
+                <TextBlock Style="{StaticResource StatusSeparator}" />
+
+                <TextBlock Text="{Binding ControllerCountText}" Style="{StaticResource StatusChip}" />
+                <TextBlock Style="{StaticResource StatusSeparator}" />
+
+                <TextBlock Text="{Binding VrChatLogStatusText}" Style="{StaticResource StatusChip}"
+                           Foreground="{DynamicResource TextTertiaryBrush}" />
+                <TextBlock Style="{StaticResource StatusSeparator}" />
+
+                <Button Command="{Binding OpenSlimeVrDashboardCommand}"
+                        ToolTip="Bring SlimeVR Server window to front (launches it if not running)"
+                        Cursor="Hand"
+                        Background="Transparent" BorderThickness="0"
+                        Padding="2,0">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="WindowApps24" FontSize="12" Margin="0,0,4,0"
+                                       Foreground="{DynamicResource AccentPrimaryBrush}" />
+                        <TextBlock Text="SlimeVR Server" Style="{StaticResource StatusChip}"
+                                   Foreground="{DynamicResource AccentPrimaryBrush}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <ui:SnackbarPresenter Grid.Row="1" x:Name="RootSnackbar" />
+
+        <tb:TaskbarIcon x:Name="TrayIcon"
+                        IconSource="pack://application:,,,/Assets/app.ico"
+                        ToolTipText="Everything To IMU SlimeVR"
+                        TrayLeftMouseUp="TrayIcon_LeftClick">
+            <tb:TaskbarIcon.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="{DynamicResource Str.Tray.Show}" Click="TrayShow_Click" />
+                    <MenuItem Header="{DynamicResource Str.Tray.Hide}" Click="TrayHide_Click" />
+                    <Separator />
+                    <MenuItem Header="{DynamicResource Str.Tray.Exit}" Click="TrayExit_Click" />
+                </ContextMenu>
+            </tb:TaskbarIcon.ContextMenu>
+        </tb:TaskbarIcon>
+    </Grid>
+</ui:FluentWindow>
