@@ -92,6 +92,27 @@ namespace Everything_To_IMU_SlimeVR
             float rad = (float)(deg * Math.PI / 180.0);
             return System.Numerics.Quaternion.CreateFromAxisAngle(System.Numerics.Vector3.UnitZ, rad);
         }
+
+        public float GetGyroScaleTrim(string macKey)
+        {
+            if (string.IsNullOrEmpty(macKey)) return 1.0f;
+            return _controllerMounts.TryGetValue(macKey, out var c) ? c.GyroScaleTrim : 1.0f;
+        }
+
+        public void SetGyroScaleTrim(string macKey, float trim)
+        {
+            if (string.IsNullOrEmpty(macKey)) return;
+            // Hard clamp prevents the slider from being driven to nonsense if it's ever wired
+            // to free input (e.g. textbox). The fusion filter goes wild outside this window.
+            trim = Math.Clamp(trim, 0.5f, 1.5f);
+            if (!_controllerMounts.TryGetValue(macKey, out var c))
+            {
+                c = new ControllerMountConfig();
+                _controllerMounts[macKey] = c;
+            }
+            c.GyroScaleTrim = trim;
+            try { SaveConfig(); } catch { }
+        }
         public static Configuration LoadConfig()
         {
             string openPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");

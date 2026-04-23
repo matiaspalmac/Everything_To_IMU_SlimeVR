@@ -306,6 +306,33 @@
                     </Border>
 
                     <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12"
+                            Visibility="{Binding SelectedTracker.SupportsGyroTrim, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="Gyro scale trim"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,2" />
+                            <TextBlock Text="Per-controller multiplier on the gyro signal. Use only if a specific Joy-Con 2 drifts in yaw at a constant rate. Leave at 1.000 for normal use."
+                                       FontSize="11" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       Margin="0,0,0,6" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Slider Grid.Column="0" Minimum="0.95" Maximum="1.05"
+                                        TickFrequency="0.005" IsSnapToTickEnabled="True"
+                                        Value="{Binding SelectedGyroTrim, Mode=TwoWay}"
+                                        VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding SelectedGyroTrimText}"
+                                           FontFamily="Consolas" FontSize="14" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AccentPrimaryBrush}"
+                                           Margin="8,0,0,0" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12"
                             Visibility="{Binding SelectedTracker.SupportsImu, Converter={StaticResource BoolToVisibility}}">
                         <StackPanel>
                             <TextBlock Text="Mount rotation"

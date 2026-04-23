@@ -26,6 +26,7 @@ public partial class TrackerRow : ObservableObject
     [ObservableProperty] private Brush _batteryBrush = Brushes.Gray;
     [ObservableProperty] private string _hzText = "—";
     [ObservableProperty] private string _mountYawText = "0°";
+    [ObservableProperty] private bool _supportsGyroTrim;
 
     public TrackerRow(IBodyTracker tracker, TrackerKind kind)
     {
@@ -43,6 +44,10 @@ public partial class TrackerRow : ObservableObject
         };
         SupportsHaptics = tracker.SupportsHaptics;
         SupportsImu = tracker.SupportsIMU;
+        // Gyro trim only meaningful for trackers with no factory cal we can read. JSL applies
+        // factory cal automatically for the PS / Switch family so the user trim would fight it;
+        // BLE Joy-Con 2 has no exposed cal so we let users dial it.
+        SupportsGyroTrim = kind == TrackerKind.JoyCon2;
         Refresh();
     }
 
@@ -110,14 +115,41 @@ public partial class TrackerRow : ObservableObject
         }
     }
 
+    // Sample rate floor below which a tracker is considered "Laggy". 60 Hz is the practical
+    // minimum for VR head/limb tracking before motion lag becomes obvious; SlimeVR's own ESP
+    // firmware streams at ~120 Hz so anything sustained above 60 is fine.
+    private const double HealthyHzThreshold = 60.0;
+
     private (string, Brush) ComputeStatus()
     {
-        var green = (Brush)(System.Windows.Application.Current.Resources["SuccessBrush"] ?? Brushes.Green);
-        var gray = (Brush)(System.Windows.Application.Current.Resources["TextTertiaryBrush"] ?? Brushes.Gray);
+        var res = System.Windows.Application.Current.Resources;
+        var green = (Brush)(res["SuccessBrush"] ?? Brushes.Green);
+        var gray = (Brush)(res["TextTertiaryBrush"] ?? Brushes.Gray);
+        var amber = (Brush)(res["WarningBrush"] ?? Brushes.Orange);
+        var red = (Brush)(res["ErrorBrush"] ?? Brushes.Red);
+
+        // Disconnected check via reflection — only some trackers expose the property.
+        try
+        {
+            var disc = Tracker.GetType().GetProperty("Disconnected");
+            if (disc?.GetValue(Tracker) is bool d && d) return ("Disconnected", red);
+        }
+        catch { }
 
         if (!Tracker.Ready) return ("Connecting", gray);
         if (!SupportsImu) return ("Haptic only", green);
-        return ("Streaming", green);
+
+        double hz = 0;
+        try
+        {
+            var prop = Tracker.GetType().GetProperty("Hz");
+            if (prop?.PropertyType == typeof(double) && prop.GetValue(Tracker) is double v) hz = v;
+        }
+        catch { }
+
+        if (hz <= 0) return ("No IMU", amber);
+        if (hz < HealthyHzThreshold) return ($"Laggy ({hz:F0} Hz)", amber);
+        return ("Healthy", green);
     }
 
     private string ComputeLastCalibrated()

@@ -57,6 +57,8 @@ public partial class TrackersViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedHapticNode));
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(SelectedMountYawText));
+        OnPropertyChanged(nameof(SelectedGyroTrim));
+        OnPropertyChanged(nameof(SelectedGyroTrimText));
         AppServices.Instance.SelectedTracker = value?.Tracker;
         AppServices.Instance.RaiseSelectedChanged();
     }
@@ -66,6 +68,26 @@ public partial class TrackersViewModel : ObservableObject
     public string SelectedMountYawText =>
         SelectedTracker == null ? "0°" :
         (Everything_To_IMU_SlimeVR.Configuration.Instance?.GetMountYawDegrees(SelectedTracker.Tracker.MacSpoof) ?? 0) + "°";
+
+    public double SelectedGyroTrim
+    {
+        get => SelectedTracker == null ? 1.0 :
+            (Everything_To_IMU_SlimeVR.Configuration.Instance?.GetGyroScaleTrim(SelectedTracker.Tracker.MacSpoof) ?? 1.0f);
+        set
+        {
+            if (SelectedTracker == null) return;
+            try
+            {
+                Everything_To_IMU_SlimeVR.Configuration.Instance?.SetGyroScaleTrim(SelectedTracker.Tracker.MacSpoof, (float)value);
+                OnPropertyChanged(nameof(SelectedGyroTrimText));
+            }
+            catch { }
+        }
+    }
+
+    public string SelectedGyroTrimText =>
+        SelectedTracker == null ? "1.000" :
+        (Everything_To_IMU_SlimeVR.Configuration.Instance?.GetGyroScaleTrim(SelectedTracker.Tracker.MacSpoof) ?? 1.0f).ToString("F3");
 
     [RelayCommand]
     private void RotateMount()

@@ -11,5 +11,11 @@ namespace Everything_To_IMU_SlimeVR {
         // the Bump helper on Configuration; stored as int so it survives JSON round-trips
         // without float precision drift.
         public int YawDegrees { get; set; }
+
+        // Multiplier applied to gyro samples before they hit the fusion filter. Lets the user
+        // trim out per-chip drift on controllers where we don't have access to a factory bias
+        // (Joy-Con 2 BLE path). 1.0 = no change. Reasonable range 0.95–1.05; values outside
+        // that band usually mean something else is wrong (mounting, axis convention).
+        public float GyroScaleTrim { get; set; } = 1.0f;
     }
 }

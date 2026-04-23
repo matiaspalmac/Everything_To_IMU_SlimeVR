@@ -226,6 +226,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 _gyroRad = new Vector3(gxRaw * GyroScaleRadSecPerUnit,
                                         gzRaw * GyroScaleRadSecPerUnit,
                                        -gyRaw * GyroScaleRadSecPerUnit);
+                // User-tunable per-MAC gyro trim (Joy-Con 2 has no factory cal we can read,
+                // unlike the JSL controllers, so let the user nudge it manually if a specific
+                // device drifts).
+                float gyroTrim = Configuration.Instance?.GetGyroScaleTrim(_macSpoof) ?? 1.0f;
+                if (gyroTrim != 1.0f) _gyroRad *= gyroTrim;
 
                 // Magnetometer at 0x19 (3 × int16 LE per ndeadly hid_reports.md). Feature bit 7
                 // is enabled by our 0xFF mask in CmdSensorInit/Start so the controller streams it.

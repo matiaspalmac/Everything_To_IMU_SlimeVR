@@ -77,7 +77,7 @@ public partial class App : Application
             AutoUpdater.Synchronous = false;
             AutoUpdater.Mandatory = false;
             AutoUpdater.UpdateMode = Mode.Normal;
-            AutoUpdater.Start("https://raw.githubusercontent.com/Sebane1/Everything_To_IMU_SlimeVR/main/update.xml");
+            AutoUpdater.Start("https://raw.githubusercontent.com/matiaspalmac/Everything_To_IMU_SlimeVR/main/update.xml");
         }
         catch (Exception ex)
         {
