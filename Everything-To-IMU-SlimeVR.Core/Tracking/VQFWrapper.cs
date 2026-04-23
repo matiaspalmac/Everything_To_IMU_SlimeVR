@@ -5,6 +5,7 @@ public class VQFWrapper : IDisposable {
     private IntPtr handle;
     private readonly double[] _gyrBuf = new double[3];
     private readonly double[] _accBuf = new double[3];
+    private readonly double[] _magBuf = new double[3];
     private readonly double[] _quatBuf = new double[4];
 
     private const string DllName = "vqf"; // or "libvqf" on macOS/Linux if not renamed
@@ -63,6 +64,21 @@ public class VQFWrapper : IDisposable {
 
     public System.Numerics.Quaternion GetQuat6DFast() {
         VQF_GetQuat6D(handle, _quatBuf);
+        return new System.Numerics.Quaternion((float)_quatBuf[1], (float)_quatBuf[2], (float)_quatBuf[3], (float)_quatBuf[0]);
+    }
+
+    // 9DoF zero-alloc hot-path. Mag is mapped through the same (X, -Z, Y) convention as gyro/accel
+    // so it lands in the same body frame VQF was tuned for. Mag input expected in µT (or any
+    // unit consistent across calls — VQF normalises the vector internally).
+    public void UpdateFast9D(System.Numerics.Vector3 gyro, System.Numerics.Vector3 accel, System.Numerics.Vector3 mag) {
+        _gyrBuf[0] = gyro.X; _gyrBuf[1] = -gyro.Z; _gyrBuf[2] = gyro.Y;
+        _accBuf[0] = accel.X; _accBuf[1] = -accel.Z; _accBuf[2] = accel.Y;
+        _magBuf[0] = mag.X; _magBuf[1] = -mag.Z; _magBuf[2] = mag.Y;
+        VQF_Update(handle, _gyrBuf, _accBuf, _magBuf);
+    }
+
+    public System.Numerics.Quaternion GetQuat9DFast() {
+        VQF_GetQuat9D(handle, _quatBuf);
         return new System.Numerics.Quaternion((float)_quatBuf[1], (float)_quatBuf[2], (float)_quatBuf[3], (float)_quatBuf[0]);
     }
 

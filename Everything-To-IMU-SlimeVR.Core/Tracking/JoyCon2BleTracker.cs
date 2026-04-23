@@ -37,6 +37,15 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private const float AccelScaleGPerUnit = 1f / 4096f;            // 1G = 4096 raw
         private const float GyroScaleDpsPerUnit = 360f / 48000f;        // 360°/s = 48000 raw → 0.0075 dps/unit
         private const float DegreesToRadians = MathF.PI / 180f;
+        // AK09919 magnetometer: ~0.15 µT per LSB (datasheet typical). VQF normalises the mag
+        // vector internally so the absolute scale only matters for sanity checks; using the
+        // datasheet value keeps debug output in real-world units.
+        private const float MagScaleMicroTeslaPerUnit = 0.15f;
+        // Earth field is ~25-65 µT. Reject readings outside a permissive window — all-zero
+        // bytes (mag disabled / cable interference / first-packet artifacts) and absurd values
+        // (saturated near a strong magnet) just fall back to the 6DoF path for that frame.
+        private const float MagMinMagnitudeUt = 10f;
+        private const float MagMaxMagnitudeUt = 200f;
 
         // Throttle SlimeVR sends — same reasoning as GenericControllerTracker (avoid UdpClient flooding).
         private static readonly long SendMinIntervalTicks = TimeSpan.TicksPerMillisecond * 5; // 200 Hz cap
@@ -71,6 +80,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private string _debug = string.Empty;
         private Vector3 _accel;
         private Vector3 _gyroRad;
+        private Vector3 _mag;            // µT, body frame
+        private bool _magValid;          // last sample within plausible Earth-field window
+        private long _magUsedSamples;    // diagnostic: how many 9D updates we have actually fed
         private Quaternion _rotation = Quaternion.Identity;
         private float _lastEulerPosition;
         private float _trackerEuler;
@@ -139,7 +151,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 string firmwareString = $"0.7.2-EverythingToIMU-{_variant}";
                 _udpHandler = new UDPHandler(firmwareString, _macAddressBytes,
                     FirmwareConstants.BoardType.CUSTOM, imuHint, FirmwareConstants.McuType.UNKNOWN,
-                    FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 1);
+                    FirmwareConstants.MagnetometerStatus.ENABLED, 1);
                 _udpHandler.Active = true;
 
                 // Register the notify callback FIRST so we don't lose the first packets fired right after
@@ -209,6 +221,26 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                                         gyRaw * GyroScaleDpsPerUnit * DegreesToRadians,
                                         gzRaw * GyroScaleDpsPerUnit * DegreesToRadians);
 
+                // Magnetometer at 0x19 (3 × int16 LE per ndeadly hid_reports.md). Feature bit 7
+                // is enabled by our 0xFF mask in CmdSensorInit/Start so the controller streams it.
+                // We sanity-check the magnitude against the Earth-field window — all-zero or
+                // saturated readings (cable, magnet near controller) drop us back to 6DoF for
+                // that frame instead of feeding garbage into VQF and corrupting the fused yaw.
+                _magValid = false;
+                if (len >= 0x1F) {
+                    short mxRaw = BitConverter.ToInt16(bytes, 0x19);
+                    short myRaw = BitConverter.ToInt16(bytes, 0x1B);
+                    short mzRaw = BitConverter.ToInt16(bytes, 0x1D);
+                    var magUt = new Vector3(mxRaw * MagScaleMicroTeslaPerUnit,
+                                             myRaw * MagScaleMicroTeslaPerUnit,
+                                             mzRaw * MagScaleMicroTeslaPerUnit);
+                    float magMag = magUt.Length();
+                    if (magMag > MagMinMagnitudeUt && magMag < MagMaxMagnitudeUt) {
+                        _mag = magUt;
+                        _magValid = true;
+                    }
+                }
+
                 // Battery voltage in mV at 0x1F (uint16 LE) per ndeadly/switch2_controller_research.
                 // Earlier jc2cpp README placed it at 0x1C — wrong, that position is magnetometer Y.
                 // Map Li-ion cell window 3000..4200 mV → 0..1.
@@ -235,8 +267,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     return; // not yet emitting orientation
                 }
 
-                _vqf.UpdateFast(_gyroRad, _accel);
-                _rotation = _vqf.GetQuat6DFast();
+                if (_magValid) {
+                    _vqf.UpdateFast9D(_gyroRad, _accel, _mag);
+                    _rotation = _vqf.GetQuat9DFast();
+                    _magUsedSamples++;
+                } else {
+                    _vqf.UpdateFast(_gyroRad, _accel);
+                    _rotation = _vqf.GetQuat6DFast();
+                }
 
                 if (!_warmupComplete) {
                     if (_gyroRad.LengthSquared() > WarmupGyroStationaryThresholdSq || _warmupStableStartTicks < 0) {
@@ -281,14 +319,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 }
 
                 if (GenericTrackerManager.DebugOpen) {
+                    string fusion = _magValid ? "9D" : "6D";
                     _debug =
                         $"Device Id: {_macSpoof}\r\n" +
                         $"Variant: {_variant}\r\n" +
                         $"BD Addr: {_bluetoothAddress:X12}\r\n" +
-                        $"Hz: {Hz:F1}\r\n" +
+                        $"Hz: {Hz:F1}  Fusion: {fusion}  9D samples: {_magUsedSamples}\r\n" +
                         $"Euler: X:{_euler.X:F2}, Y:{_euler.Y:F2}, Z:{_rotation.Z:F2}\r\n" +
                         $"Gyro:  X:{_gyroRad.X:F3}, Y:{_gyroRad.Y:F3}, Z:{_gyroRad.Z:F3}\r\n" +
                         $"Accel: X:{_accel.X:F2}, Y:{_accel.Y:F2}, Z:{_accel.Z:F2}\r\n" +
+                        $"Mag:   X:{_mag.X:F1}, Y:{_mag.Y:F1}, Z:{_mag.Z:F1}  |M|={_mag.Length():F1} uT (valid:{_magValid})\r\n" +
                         $"Battery: {_lastBatteryFraction * 100f:F0}%\r\n";
                 }
             } catch (Exception ex) {

@@ -11,3 +11,4 @@ Companions/3DSClient/application/3DS-2DS Client
 *.cfg
 *.3dsx
 *.smdh
+publish/
