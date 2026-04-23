@@ -4,10 +4,13 @@
     <TargetFramework>net10.0-windows7.0</TargetFramework>
     <RootNamespace>Everything_To_IMU_SlimeVR</RootNamespace>
     <AssemblyName>Everything_To_IMU_SlimeVR.Core</AssemblyName>
-    <Nullable>enable</Nullable>
+    <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
     <Platforms>AnyCPU;x64</Platforms>
+    <!-- Legacy code predates nullable reference types; rather than annotate every field,
+         silence the common unused-field / discard warnings that are not actionable here. -->
+    <NoWarn>$(NoWarn);CS0168;CS0169;CS0219;CS0414;CS0642;CS0649;CS4014;CS8632</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
