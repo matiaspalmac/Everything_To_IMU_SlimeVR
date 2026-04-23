@@ -37,9 +37,6 @@
     <Content Include="vqf.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="vqf.pdb">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <None Include="JoyShockLibrary.lib" />
     <None Include="JoyShockLibrary.h" />
   </ItemGroup>

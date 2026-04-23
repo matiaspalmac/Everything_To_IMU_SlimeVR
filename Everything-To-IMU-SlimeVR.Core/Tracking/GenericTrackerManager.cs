@@ -76,6 +76,20 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             JoyCon2Manager.OnError += (_, msg) => OnTrackerError?.Invoke(this, $"JoyCon2: {msg}");
             JoyCon2Manager.Start();
 
+            // Auto-detect controller plug/unplug at the OS level. HidSharp raises Changed when
+            // any HID device (USB or Bluetooth-paired) is added or removed, which is exactly the
+            // event we need to wake the JSL enumeration loop early instead of waiting for its
+            // next periodic scan. Without this the user has to wait up to the poll interval (or
+            // hit Rescan manually) for a freshly-connected DualSense / Joy-Con / Switch Pro to
+            // show up. Joy-Con 2 already gets instant pickup via the BLE advert watcher.
+            HidSharp.DeviceList.Local.Changed += (_, _) =>
+            {
+                // Releasing the lock-in flag is enough — the polling task checks it every
+                // iteration and re-enumerates as soon as it sees `false`. Doing the actual
+                // JslConnectDevices call from this thread would race with the polling loop.
+                lockInDetectedDevices = false;
+            };
+
             Task.Run(async () =>
             {
                 foreach (var item in _configuration.TrackerConfigUdpHaptics)
@@ -192,7 +206,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                                 }
                             }
                         }
-                        Thread.Sleep(10000);
+                        // 2 s instead of the original 10 s. The HidSharp Changed event above
+                        // breaks us out early on most plug/unplug, so this is just the slow-path
+                        // fallback for drivers that don't surface change notifications.
+                        Thread.Sleep(2000);
                     } catch (Exception e)
                     {
                         OnTrackerError?.Invoke(this, e.Message);
@@ -235,7 +252,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                         lock (_trackersJoyCon2) { _trackersJoyCon2.Remove(dropped); }
                         _allTrackers.Remove(dropped);
                     }
-                    Thread.Sleep(10000);
+                    Thread.Sleep(2000);
                 }
             });
         }

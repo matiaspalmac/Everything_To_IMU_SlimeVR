@@ -77,17 +77,21 @@
         <Setter Property="Height" Value="10" />
     </Style>
 
-    <!-- Button sizing tokens -->
-    <Style x:Key="ButtonSmall" TargetType="{x:Type ui:Button}">
+    <!-- Button sizing tokens. Each derives from the WPF-UI default ui:Button style so they
+         inherit the Fluent template (background brush, rounded corners, hover/pressed states).
+         Without BasedOn the buttons lose the template entirely and render as invisible
+         text-only widgets on Mica — which is what produced the "horrible buttons" artefact
+         where Rescan / Open Bluetooth appeared as grey smudges instead of real buttons. -->
+    <Style x:Key="ButtonSmall" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource {x:Type ui:Button}}">
         <Setter Property="Padding" Value="10,4" />
-        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="MinHeight" Value="28" />
         <Setter Property="FontSize" Value="12" />
     </Style>
-    <Style x:Key="ButtonMedium" TargetType="{x:Type ui:Button}">
+    <Style x:Key="ButtonMedium" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource {x:Type ui:Button}}">
         <Setter Property="Padding" Value="14,6" />
         <Setter Property="MinHeight" Value="32" />
     </Style>
-    <Style x:Key="ButtonPrimaryLarge" TargetType="{x:Type ui:Button}">
+    <Style x:Key="ButtonPrimaryLarge" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource {x:Type ui:Button}}">
         <Setter Property="Padding" Value="16,8" />
         <Setter Property="MinHeight" Value="36" />
         <Setter Property="Appearance" Value="Primary" />

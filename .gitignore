@@ -12,3 +12,5 @@ Companions/3DSClient/application/3DS-2DS Client
 *.3dsx
 *.smdh
 publish/
+# Native lib backups produced by our rebuild scripts (vqf, JoyShockLibrary).
+*.bak
