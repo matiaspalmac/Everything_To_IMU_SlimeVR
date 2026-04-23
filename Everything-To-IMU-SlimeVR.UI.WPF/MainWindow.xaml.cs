@@ -18,6 +18,8 @@ public partial class MainWindow : FluentWindow
         StateChanged += OnStateChanged;
         Closing += OnClosing;
         AppServices.Instance.BatteryLowAlert += OnBatteryLow;
+        AppServices.Instance.TrackerConnected += OnTrackerConnected;
+        AppServices.Instance.TrackerDisconnected += OnTrackerDisconnected;
     }
 
     private void OnBatteryLow(object? sender, BatteryLowEventArgs e)
@@ -29,6 +31,34 @@ public partial class MainWindow : FluentWindow
                 TrayIcon.ShowNotification(
                     title: "Tracker battery low",
                     message: $"{e.TrackerName} at {e.Percent}% — plug in or swap batteries soon.");
+            }
+            catch { }
+        });
+    }
+
+    private void OnTrackerConnected(object? sender, TrackerNotificationEventArgs e)
+    {
+        // Skip toast while the main window is in foreground — the tracker grid already shows
+        // the new row, a balloon would be redundant noise. Only fire when we're in the tray.
+        Dispatcher.Invoke(() =>
+        {
+            try
+            {
+                if (IsActive && WindowState != WindowState.Minimized) return;
+                TrayIcon.ShowNotification(title: "Tracker connected", message: e.TrackerName);
+            }
+            catch { }
+        });
+    }
+
+    private void OnTrackerDisconnected(object? sender, TrackerNotificationEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            try
+            {
+                if (IsActive && WindowState != WindowState.Minimized) return;
+                TrayIcon.ShowNotification(title: "Tracker disconnected", message: e.TrackerName);
             }
             catch { }
         });

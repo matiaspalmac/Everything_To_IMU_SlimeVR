@@ -135,8 +135,11 @@
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="12,0">
-                                        <ui:SymbolIcon Symbol="{Binding TypeIcon}" FontSize="18" Margin="0,0,8,0"
+                                        <ui:SymbolIcon Symbol="{Binding TypeIcon}" FontSize="18" Margin="0,0,6,0"
                                                        Foreground="{DynamicResource AccentPrimaryBrush}" />
+                                        <Ellipse Width="10" Height="10" Margin="0,0,8,0"
+                                                 Fill="{Binding LedColorBrush}" Stroke="{DynamicResource StrokeSubtleBrush}" StrokeThickness="1"
+                                                 Visibility="{Binding HasLedColor, Converter={StaticResource BoolToVisibility}}" />
                                         <TextBlock Text="{Binding TypeLabel}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </DataTemplate>
@@ -172,6 +175,26 @@
                                     <TextBlock Text="{Binding HzText}" FontFamily="Consolas" FontSize="11"
                                                Foreground="{DynamicResource TextSecondaryBrush}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="IMU" Width="70">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding ImuRateText}" FontFamily="Consolas" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               ToolTip="Raw IMU sample rate from the sensor (uncapped)." />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Jitter" Width="70">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding JitterText}" FontFamily="Consolas" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               ToolTip="Average angular delta between published quaternions. At rest expect &lt;0.10°." />
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

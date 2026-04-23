@@ -25,8 +25,12 @@ public partial class TrackerRow : ObservableObject
     [ObservableProperty] private bool _hasBattery;
     [ObservableProperty] private Brush _batteryBrush = Brushes.Gray;
     [ObservableProperty] private string _hzText = "—";
+    [ObservableProperty] private string _imuRateText = "—";
+    [ObservableProperty] private string _jitterText = "—";
     [ObservableProperty] private string _mountYawText = "0°";
     [ObservableProperty] private bool _supportsGyroTrim;
+    [ObservableProperty] private Brush _ledColorBrush = Brushes.Transparent;
+    [ObservableProperty] private bool _hasLedColor;
 
     public TrackerRow(IBodyTracker tracker, TrackerKind kind)
     {
@@ -57,12 +61,59 @@ public partial class TrackerRow : ObservableObject
         (StatusText, StatusBrush) = ComputeStatus();
         RefreshBattery();
         RefreshHz();
+        RefreshImuMetrics();
+        RefreshLedColor();
         try
         {
             int deg = Everything_To_IMU_SlimeVR.Configuration.Instance?.GetMountYawDegrees(Tracker.MacSpoof) ?? 0;
             MountYawText = deg + "°";
         }
         catch { MountYawText = "0°"; }
+    }
+
+    private void RefreshImuMetrics()
+    {
+        try
+        {
+            var rateProp = Tracker.GetType().GetProperty("ImuSampleRateHz");
+            if (rateProp?.PropertyType == typeof(double) && rateProp.GetValue(Tracker) is double r && r > 0)
+                ImuRateText = $"{r:F0} Hz";
+            else
+                ImuRateText = "—";
+
+            var jitterProp = Tracker.GetType().GetProperty("JitterDegrees");
+            if (jitterProp?.PropertyType == typeof(float) && jitterProp.GetValue(Tracker) is float j && j > 0)
+                JitterText = $"{j:F2}°";
+            else
+                JitterText = "—";
+        }
+        catch
+        {
+            ImuRateText = "—";
+            JitterText = "—";
+        }
+    }
+
+    private void RefreshLedColor()
+    {
+        try
+        {
+            var prop = Tracker.GetType().GetProperty("LastLedArgb");
+            if (prop?.PropertyType == typeof(int) && prop.GetValue(Tracker) is int argb)
+            {
+                byte a = (byte)((argb >> 24) & 0xFF);
+                byte r = (byte)((argb >> 16) & 0xFF);
+                byte g = (byte)((argb >> 8) & 0xFF);
+                byte b = (byte)(argb & 0xFF);
+                LedColorBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a == 0 ? (byte)255 : a, r, g, b));
+                HasLedColor = true;
+            }
+            else
+            {
+                HasLedColor = false;
+            }
+        }
+        catch { HasLedColor = false; }
     }
 
     private void RefreshHz()

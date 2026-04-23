@@ -175,6 +175,7 @@ public partial class TrackersViewModel : ObservableObject
         foreach (var row in Trackers) row.Refresh();
         IsEmpty = Trackers.Count == 0;
         AppServices.Instance.CheckBatteryLevels();
+        AppServices.Instance.NoteLiveTrackers(Trackers.Select(r => r.Tracker));
     }
 
     private void PersistCurrentTrackerConfig()

@@ -19,6 +19,34 @@ public sealed class AppServices
     public Dictionary<IBodyTracker, DateTime> CalibrationTimestamps { get; } = new();
 
     public event EventHandler<BatteryLowEventArgs>? BatteryLowAlert;
+    /// <summary>Fires when a tracker first appears in the live list.</summary>
+    public event EventHandler<TrackerNotificationEventArgs>? TrackerConnected;
+    /// <summary>Fires when a previously-seen tracker drops out.</summary>
+    public event EventHandler<TrackerNotificationEventArgs>? TrackerDisconnected;
+    private readonly HashSet<string> _knownTrackerIds = new();
+
+    public void NoteLiveTrackers(IEnumerable<IBodyTracker> live)
+    {
+        // Diff against last snapshot — any newly-present id fires Connected; any missing id
+        // fires Disconnected. Uses MacSpoof as the stable identity so a reconnect does not
+        // produce a phantom disconnect+reconnect pair on the same physical controller.
+        var liveIds = new HashSet<string>();
+        foreach (var t in live)
+        {
+            if (string.IsNullOrEmpty(t.MacSpoof)) continue;
+            liveIds.Add(t.MacSpoof);
+            if (_knownTrackerIds.Add(t.MacSpoof))
+            {
+                TrackerConnected?.Invoke(this, new TrackerNotificationEventArgs(
+                    t.ToString() ?? t.MacSpoof, t.MacSpoof));
+            }
+        }
+        foreach (var id in _knownTrackerIds.Except(liveIds).ToList())
+        {
+            _knownTrackerIds.Remove(id);
+            TrackerDisconnected?.Invoke(this, new TrackerNotificationEventArgs(id, id));
+        }
+    }
 
     private readonly Dictionary<IBodyTracker, DateTime> _lastLowBatteryAlert = new();
     private static readonly TimeSpan LowBatteryAlertCooldown = TimeSpan.FromMinutes(10);
@@ -88,3 +116,5 @@ public record BatteryLowEventArgs(string TrackerName, float Level)
 {
     public int Percent => (int)Math.Round(Level * 100);
 }
+
+public record TrackerNotificationEventArgs(string TrackerName, string TrackerId);
