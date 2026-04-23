@@ -74,6 +74,38 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         // LED state sync: tracker health reflected on the controller's own light bar.
         private int _lastLedArgb = unchecked((int)0xFF808080);
         private DateTime _lastLedPush = DateTime.MinValue;
+        public int LastLedArgb => _lastLedArgb;
+
+        // Jitter EWMA: average angular delta between consecutive published quaternions, in
+        // degrees. At rest a healthy tracker should sit well below 0.1°; higher values under
+        // stationary conditions indicate either magnetometer interference (if 9DoF), high
+        // sensor noise, or an unstable BLE link. Tau ≈ 20 samples.
+        private Quaternion _prevPublishedRotation = Quaternion.Identity;
+        private float _jitterEwmaDeg;
+        public float JitterDegrees => _jitterEwmaDeg;
+
+        // Raw IMU rate = JSL callbacks/sec *before* our send-rate cap. More useful diagnostic
+        // than the capped Hz — tells us whether the underlying HID/USB stream is delivering
+        // at the chip's rated rate. Compared to Hz (capped at 200), ImuSampleRate reveals
+        // when the controller is under-polling (e.g. bad Bluetooth link → 60 Hz instead of
+        // expected 250).
+        private long _imuSampleCount;
+        private DateTime _imuLastRateWindow = DateTime.UtcNow;
+        private double _imuLastRate;
+        public double ImuSampleRateHz
+        {
+            get
+            {
+                var elapsed = (DateTime.UtcNow - _imuLastRateWindow).TotalSeconds;
+                if (elapsed >= 1.0)
+                {
+                    _imuLastRate = _imuSampleCount / elapsed;
+                    _imuSampleCount = 0;
+                    _imuLastRateWindow = DateTime.UtcNow;
+                }
+                return _imuLastRate;
+            }
+        }
 
         public event EventHandler<string> OnTrackerError;
         Stopwatch holdTimer = new Stopwatch();
@@ -119,13 +151,18 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     _macAddressBytes = new byte[6];
                     Array.Copy(hash, 0, _macAddressBytes, 0, 6);
                     _macAddressBytes[0] = (byte)((_macAddressBytes[0] & 0xFE) | 0x02);
-                    // DualSense uses a Bosch BMI270-class 6DoF IMU (accel+gyro, no mag).
-                    // Switch Pro / Joy-Con / DS4 also 6DoF IMUs. Hint BMI270 so SlimeVR
-                    // shows a meaningful sensor type instead of UNKNOWN in its UI.
+                    // DualSense (PS5) is widely reported as a Bosch BMI270-class 6DoF (no
+                    // public teardown ID, but the firmware-exposed scale ±2000 dps + ±4G with
+                    // 8192 LSB/g matches BMI270's RANGE_2000 | ACC_RANGE_4G config). DualShock 4
+                    // is Bosch BMI055 per multiple community sources — SlimeVR's ImuType enum
+                    // does not list BMI055, so map DS4 to BMI160 (same Bosch family, closest
+                    // dashboard label) instead of misreporting it as BMI270. Switch family is
+                    // ST LSM6DS3 verified. None of these have a magnetometer.
                     var imuHint = ctype switch
                     {
-                        1 or 2 or 3 => FirmwareConstants.ImuType.LSM6DS3TRC, // Switch family uses ST LSM6DS3
-                        4 or 5 => FirmwareConstants.ImuType.BMI270,          // DualShock 4 / DualSense
+                        1 or 2 or 3 => FirmwareConstants.ImuType.LSM6DS3TRC, // Switch L/R/Pro
+                        4 => FirmwareConstants.ImuType.BMI160,               // DualShock 4 (BMI055, label as BMI160)
+                        5 => FirmwareConstants.ImuType.BMI270,               // DualSense
                         _ => FirmwareConstants.ImuType.UNKNOWN
                     };
                     // Firmware string becomes "Current" field in SlimeVR dashboard. Server also
@@ -205,6 +242,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 // across reconnects.
                 var mountYaw = Configuration.Instance?.GetMountYawQuaternion(macSpoof) ?? Quaternion.Identity;
                 var publishedRotation = Quaternion.Normalize(mountYaw * _rotation);
+                // Jitter EWMA: angle between this publish and the last one. At rest this is
+                // the noise floor; under motion it spikes but the EWMA averages down again.
+                _imuSampleCount++;
+                float qdot = Math.Clamp(Math.Abs(Quaternion.Dot(publishedRotation, _prevPublishedRotation)), 0f, 1f);
+                float angleDeg = (float)(2.0 * Math.Acos(qdot) * 180.0 / Math.PI);
+                _jitterEwmaDeg = _jitterEwmaDeg * 0.95f + angleDeg * 0.05f;
+                _prevPublishedRotation = publishedRotation;
                 if (GenericTrackerManager.DebugOpen || _yawReferenceTypeValue != RotationReferenceType.TrustDeviceYaw)
                 {
                     var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
@@ -214,11 +258,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     _gyro = _sensorOrientation.Gyro;
                     _acceleration = _sensorOrientation.Accelerometer;
                 }
-                // Send rotation + raw accel as separate packets. BUNDLE + gravity subtraction
-                // broke tracking — kept simple individual sends matching original behaviour.
-                // SlimeVR accepts raw accel (in g-units) on the ACCELERATION packet fine; it
-                // handles gravity removal server-side against the rotation stream.
-                await udpHandler.SetSensorAcceleration(_sensorOrientation.Accelerometer / 10f, 0);
+                // SlimeVR's ACCELERATION packet expects m/s² (matches the SlimeVR-Tracker-ESP
+                // firmware contract). _sensorOrientation.Accelerometer holds JSL's `g` value
+                // multiplied by 10 (see SensorOrientation.cs line 80, legacy from pre-fork
+                // code). Multiplying by 0.980665 collapses ÷10 (back to g) × 9.80665 (g→m/s²)
+                // into one step. Old code sent raw g, which the server treated as m/s² and
+                // therefore saw linear acceleration ~9.8× too small — explains why fast
+                // direction changes felt mushy in the skeleton solver.
+                await udpHandler.SetSensorAcceleration(_sensorOrientation.Accelerometer * 0.980665f, 0);
                 if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw)
                 {
                     await udpHandler.SetSensorRotation(publishedRotation, 0);
