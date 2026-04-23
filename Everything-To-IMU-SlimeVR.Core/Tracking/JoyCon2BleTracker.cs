@@ -308,17 +308,21 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             _sampleCount++;
             try {
                 _rotation = Quaternion.Normalize(_rotation);
+                // Apply user-persisted mount yaw (0/90/180/270) before sending so the same
+                // physical device keeps its SlimeVR-side orientation across reconnects.
+                var mountYaw = Configuration.Instance?.GetMountYawQuaternion(_macSpoof) ?? Quaternion.Identity;
+                var publishedRotation = Quaternion.Normalize(mountYaw * _rotation);
                 if (GenericTrackerManager.DebugOpen || _yawReferenceTypeValue != RotationReferenceType.TrustDeviceYaw) {
                     var trackerRotation = OpenVRReader.GetTrackerRotation(_yawReferenceTypeValue);
                     _trackerEuler = trackerRotation.GetYawFromQuaternion();
                     _lastEulerPosition = -_trackerEuler;
-                    _euler = _rotation.QuaternionToEuler();
+                    _euler = publishedRotation.QuaternionToEuler();
                 }
                 // Match GenericControllerTracker: send raw accel in g-units (server removes gravity).
                 // _accel is in m/s² from the SDL-style scale; convert back to G for the UDP packet.
                 await _udpHandler.SetSensorAcceleration(_accel / 9.80665f, 0);
                 if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw) {
-                    await _udpHandler.SetSensorRotation(_rotation, 0);
+                    await _udpHandler.SetSensorRotation(publishedRotation, 0);
                 } else {
                     await _udpHandler.SetSensorRotation(new Vector3(_euler.X, _euler.Y, _lastEulerPosition).ToQuaternion(), 0);
                 }

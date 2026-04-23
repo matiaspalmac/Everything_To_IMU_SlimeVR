@@ -56,11 +56,29 @@ public partial class TrackersViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedExtensionYawSource));
         OnPropertyChanged(nameof(SelectedHapticNode));
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(SelectedMountYawText));
         AppServices.Instance.SelectedTracker = value?.Tracker;
         AppServices.Instance.RaiseSelectedChanged();
     }
 
     public bool HasSelection => SelectedTracker != null;
+
+    public string SelectedMountYawText =>
+        SelectedTracker == null ? "0°" :
+        (Everything_To_IMU_SlimeVR.Configuration.Instance?.GetMountYawDegrees(SelectedTracker.Tracker.MacSpoof) ?? 0) + "°";
+
+    [RelayCommand]
+    private void RotateMount()
+    {
+        if (SelectedTracker == null) return;
+        try
+        {
+            Everything_To_IMU_SlimeVR.Configuration.Instance?.BumpMountYaw(SelectedTracker.Tracker.MacSpoof, 90);
+            SelectedTracker.Refresh();
+            OnPropertyChanged(nameof(SelectedMountYawText));
+        }
+        catch { }
+    }
 
     public RotationReferenceType SelectedYawSource
     {
@@ -110,6 +128,7 @@ public partial class TrackersViewModel : ObservableObject
     {
         var live = new List<(IBodyTracker tracker, TrackerKind kind)>();
         foreach (var t in GenericTrackerManager.TrackersBluetooth) live.Add((t, TrackerKind.DualSense));
+        foreach (var t in GenericTrackerManager.TrackersJoyCon2) live.Add((t, TrackerKind.JoyCon2));
         foreach (var t in GenericTrackerManager.TrackersWiimote) live.Add((t, TrackerKind.Wiimote));
         foreach (var t in GenericTrackerManager.Trackers3ds) live.Add((t, TrackerKind.ThreeDs));
         foreach (var kv in GenericTrackerManager.TrackersUdpHapticDevice) live.Add((kv.Value, TrackerKind.UdpHaptic));

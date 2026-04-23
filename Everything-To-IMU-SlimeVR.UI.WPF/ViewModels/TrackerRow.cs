@@ -5,7 +5,7 @@ using Everything_To_IMU_SlimeVR.UI.Services;
 
 namespace Everything_To_IMU_SlimeVR.UI.ViewModels;
 
-public enum TrackerKind { DualSense, Wiimote, ThreeDs, UdpHaptic }
+public enum TrackerKind { DualSense, Wiimote, ThreeDs, UdpHaptic, JoyCon2 }
 
 public partial class TrackerRow : ObservableObject
 {
@@ -25,6 +25,7 @@ public partial class TrackerRow : ObservableObject
     [ObservableProperty] private bool _hasBattery;
     [ObservableProperty] private Brush _batteryBrush = Brushes.Gray;
     [ObservableProperty] private string _hzText = "—";
+    [ObservableProperty] private string _mountYawText = "0°";
 
     public TrackerRow(IBodyTracker tracker, TrackerKind kind)
     {
@@ -37,6 +38,7 @@ public partial class TrackerRow : ObservableObject
             TrackerKind.Wiimote => ("Wiimote", "GameChat24"),
             TrackerKind.ThreeDs => ("3DS", "Device24"),
             TrackerKind.UdpHaptic => ("UDP Haptic", "Pulse24"),
+            TrackerKind.JoyCon2 => ("Joy-Con 2 / Switch 2", "Games24"),
             _ => ("Unknown", "QuestionCircle24"),
         };
         SupportsHaptics = tracker.SupportsHaptics;
@@ -50,6 +52,12 @@ public partial class TrackerRow : ObservableObject
         (StatusText, StatusBrush) = ComputeStatus();
         RefreshBattery();
         RefreshHz();
+        try
+        {
+            int deg = Everything_To_IMU_SlimeVR.Configuration.Instance?.GetMountYawDegrees(Tracker.MacSpoof) ?? 0;
+            MountYawText = deg + "°";
+        }
+        catch { MountYawText = "0°"; }
     }
 
     private void RefreshHz()

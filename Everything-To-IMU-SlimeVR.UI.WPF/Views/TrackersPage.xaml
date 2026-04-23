@@ -171,6 +171,15 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Mount" Width="60">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding MountYawText}" FontFamily="Consolas" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTemplateColumn Header="{DynamicResource Str.Trackers.Col.Imu}" Width="60">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
@@ -293,6 +302,33 @@
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12"
+                            Visibility="{Binding SelectedTracker.SupportsImu, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="Mount rotation"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,2" />
+                            <TextBlock Text="Click to cycle 0° → 90° → 180° → 270°. Persists per controller MAC across sessions."
+                                       FontSize="11" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       Margin="0,0,0,6" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ui:Button Grid.Column="0" Content="Rotate +90°"
+                                           Icon="{ui:SymbolIcon ArrowRotateClockwise24}"
+                                           Command="{Binding RotateMountCommand}"
+                                           HorizontalAlignment="Stretch" />
+                                <TextBlock Grid.Column="2" Text="{Binding SelectedMountYawText}"
+                                           FontFamily="Consolas" FontSize="14" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AccentPrimaryBrush}"
+                                           Margin="8,0,0,0" />
+                            </Grid>
                         </StackPanel>
                     </Border>
 

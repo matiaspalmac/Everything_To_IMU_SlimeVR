@@ -200,12 +200,17 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             {
                 if (udpHandler == null) { updatingAlready = false; return false; }
                 _rotation = Quaternion.Normalize(_sensorOrientation.CurrentOrientation);
+                // Apply user-persisted mount yaw (0/90/180/270) so the physical controller can
+                // be strapped in any 90° orientation and the configured offset follows the MAC
+                // across reconnects.
+                var mountYaw = Configuration.Instance?.GetMountYawQuaternion(macSpoof) ?? Quaternion.Identity;
+                var publishedRotation = Quaternion.Normalize(mountYaw * _rotation);
                 if (GenericTrackerManager.DebugOpen || _yawReferenceTypeValue != RotationReferenceType.TrustDeviceYaw)
                 {
                     var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
                     _trackerEuler = trackerRotation.GetYawFromQuaternion();
                     _lastEulerPositon = -_trackerEuler;
-                    _euler = _rotation.QuaternionToEuler();
+                    _euler = publishedRotation.QuaternionToEuler();
                     _gyro = _sensorOrientation.Gyro;
                     _acceleration = _sensorOrientation.Accelerometer;
                 }
@@ -216,7 +221,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 await udpHandler.SetSensorAcceleration(_sensorOrientation.Accelerometer / 10f, 0);
                 if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw)
                 {
-                    await udpHandler.SetSensorRotation(_rotation, 0);
+                    await udpHandler.SetSensorRotation(publishedRotation, 0);
                 }
                 else
                 {

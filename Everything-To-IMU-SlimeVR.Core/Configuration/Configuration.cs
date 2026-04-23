@@ -20,6 +20,7 @@ namespace Everything_To_IMU_SlimeVR
         private int _pollingRate = 8;
         private byte _wiiPollingRate = 32;
         private Dictionary<string, TrackerConfig> _trackerConfigUdpHaptics = new Dictionary<string, TrackerConfig>();
+        private Dictionary<string, ControllerMountConfig> _controllerMounts = new Dictionary<string, ControllerMountConfig>();
         private bool _simulatesThighs;
         private bool _audioHapticsActive = true;
         private string _language = "en";
@@ -30,6 +31,7 @@ namespace Everything_To_IMU_SlimeVR
         public Dictionary<string, TrackerConfig> TrackerConfigWiimote { get => _trackerConfigWiimote; set => _trackerConfigWiimote = value; }
         public List<TrackerConfig> TrackerConfigNunchuck { get => _trackerConfigNunchuck; set => _trackerConfigNunchuck = value; }
         public Dictionary<string, TrackerConfig> TrackerConfigUdpHaptics { get => _trackerConfigUdpHaptics; set => _trackerConfigUdpHaptics = value; }
+        public Dictionary<string, ControllerMountConfig> ControllerMounts { get => _controllerMounts; set => _controllerMounts = value ?? new(); }
         public Dictionary<string, Vector3> CalibrationConfigurations { get => _calibrationConfigurations; set => _calibrationConfigurations = value; }
         public DateTime LastCalibration { get => _lastConfigSave; set => _lastConfigSave = value; }
         public int PollingRate { get => _pollingRate; set => _pollingRate = value; }
@@ -53,6 +55,42 @@ namespace Everything_To_IMU_SlimeVR
         public TimeSpan TimeSinceLastConfig()
         {
             return DateTime.UtcNow - _lastConfigSave;
+        }
+
+        public int GetMountYawDegrees(string macKey)
+        {
+            if (string.IsNullOrEmpty(macKey)) return 0;
+            return _controllerMounts.TryGetValue(macKey, out var c) ? c.YawDegrees : 0;
+        }
+
+        /// <summary>
+        /// Rotates the stored mount yaw by <paramref name="deltaDegrees"/> and normalises to
+        /// [0, 360). Returns the new value. Persists the config file immediately so the change
+        /// survives a crash before the next graceful save.
+        /// </summary>
+        public int BumpMountYaw(string macKey, int deltaDegrees)
+        {
+            if (string.IsNullOrEmpty(macKey)) return 0;
+            if (!_controllerMounts.TryGetValue(macKey, out var c))
+            {
+                c = new ControllerMountConfig();
+                _controllerMounts[macKey] = c;
+            }
+            c.YawDegrees = ((c.YawDegrees + deltaDegrees) % 360 + 360) % 360;
+            try { SaveConfig(); } catch { }
+            return c.YawDegrees;
+        }
+
+        /// <summary>
+        /// Builds the Z-axis rotation quaternion corresponding to the mount yaw. Multiply the
+        /// tracker's fused rotation by this before sending to SlimeVR.
+        /// </summary>
+        public System.Numerics.Quaternion GetMountYawQuaternion(string macKey)
+        {
+            int deg = GetMountYawDegrees(macKey);
+            if (deg == 0) return System.Numerics.Quaternion.Identity;
+            float rad = (float)(deg * Math.PI / 180.0);
+            return System.Numerics.Quaternion.CreateFromAxisAngle(System.Numerics.Vector3.UnitZ, rad);
         }
         public static Configuration LoadConfig()
         {
