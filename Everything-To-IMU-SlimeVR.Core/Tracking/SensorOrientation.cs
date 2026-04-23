@@ -27,7 +27,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private Vector3 _gyro;
         private byte _battery;
         private VQFWrapper _vqf;
+        private readonly GyroBiasCalibrator _biasCal = new GyroBiasCalibrator();
+        public bool GyroBiasCalibrated => _biasCal.HasBias;
+        public Vector3 GyroBias => _biasCal.Bias;
         private JSL.EventCallback _callback;
+        // Pin the one callback we register with JSL so native code never ends up with a
+        // dangling function pointer if the first instance is disposed.
+        private static JSL.EventCallback? _pinnedCallback;
         List<float> averageSampleTicks = new List<float>();
         private static bool jslHandlerSet = false;
 
@@ -52,6 +58,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             stopwatch.Start();
             if (!jslHandlerSet) {
                 _callback = new JSL.EventCallback(OnControllerEvent);
+                _pinnedCallback = _callback; // keep alive for native code
                 jslHandlerSet = true;
                 JSL.JslSetCallback(_callback);
             }
@@ -61,8 +68,30 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private void SensorOrientation_OnNewJSLData(object? sender, Tuple<int, JSL.JOY_SHOCK_STATE, JSL.JOY_SHOCK_STATE, JSL.IMU_STATE, JSL.IMU_STATE, float> e) {
             try {
                 if (e.Item1 == _index) {
-                    _accelerometer = new Vector3(e.Item4.accelX, e.Item4.accelY, e.Item4.accelZ) * 10;
-                    _gyro = (new Vector3(e.Item4.gyroX, e.Item4.gyroY, e.Item4.gyroZ)).ConvertDegreesToRadians();
+                    var rawAccel = new Vector3(e.Item4.accelX, e.Item4.accelY, e.Item4.accelZ) * 10;
+                    var rawGyroRad = (new Vector3(e.Item4.gyroX, e.Item4.gyroY, e.Item4.gyroZ)).ConvertDegreesToRadians();
+
+                    // Controller-type aware axis remap: Right Joy-Con (ctype=2) IMU is mounted
+                    // rotated 180° around X vs Left, so Y+Z are physically inverted. Linux
+                    // hid-nintendo applies the same fix. Must be done before VQF and before
+                    // bias calibration so the bias estimate lives in the corrected frame.
+                    int ctype = JSL.JslGetControllerType(_index);
+                    if (ctype == 2) // Joy-Con R
+                    {
+                        rawAccel = new Vector3(rawAccel.X, -rawAccel.Y, -rawAccel.Z);
+                        rawGyroRad = new Vector3(rawGyroRad.X, -rawGyroRad.Y, -rawGyroRad.Z);
+                    }
+
+                    _accelerometer = rawAccel;
+                    _gyro = rawGyroRad;
+                    // Note: GyroBiasCalibrator + SetTauAcc(1.5) were applied earlier but caused
+                    // direction artifacts ("moving forward = tracker goes backward"). Root cause:
+                    // VQF already has internal rest-bias estimation (motionBiasEstEnabled=true by
+                    // default); adding a second bias subtractor on top fought VQF's own estimator.
+                    // tauAcc=1.5 compounded it by letting accel influence tilt too aggressively
+                    // during smooth linear motion, producing swim-like reverse drift. Reverted to
+                    // VQF defaults — they're already tuned for the common handheld case.
+
                     if (_vqf == null) {
                         if (averageSampleTicks.Count < 1000) {
                             averageSampleTicks.Add(e.Item6);
@@ -93,14 +122,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             Nunchuck = 3
         }
         // Update method to simulate gyroscope and accelerometer data fusion
-        public async void Update() {
+        public void Update() {
             try {
                 if (!disposed) {
                     switch (_sensorType) {
                         case SensorType.Bluetooth:
-                            _vqf.Update(_gyro.ToVQFDoubleArray(), _accelerometer.ToVQFDoubleArray());
-                            var vfqData = _vqf.GetQuat6D();
-                            currentOrientation = new Quaternion((float)vfqData[1], (float)vfqData[2], (float)vfqData[3], (float)vfqData[0]);
+                            _vqf.UpdateFast(_gyro, _accelerometer);
+                            currentOrientation = _vqf.GetQuat6DFast();
                             NewData?.Invoke(this, EventArgs.Empty);
                             break;
                     }
