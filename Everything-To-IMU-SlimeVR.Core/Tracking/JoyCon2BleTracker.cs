@@ -209,9 +209,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                                         gyRaw * GyroScaleDpsPerUnit * DegreesToRadians,
                                         gzRaw * GyroScaleDpsPerUnit * DegreesToRadians);
 
-                // Battery voltage in mV at 0x1C (uint16 LE). Map 3000..4200 mV → 0..1.
-                if (len >= 0x1E) {
-                    int batMv = BitConverter.ToUInt16(bytes, 0x1C);
+                // Battery voltage in mV at 0x1F (uint16 LE) per ndeadly/switch2_controller_research.
+                // Earlier jc2cpp README placed it at 0x1C — wrong, that position is magnetometer Y.
+                // Map Li-ion cell window 3000..4200 mV → 0..1.
+                if (len >= 0x21) {
+                    int batMv = BitConverter.ToUInt16(bytes, 0x1F);
                     if (batMv > 0) {
                         _lastBatteryFraction = Math.Clamp((batMv - 3000) / 1200f, 0f, 1f);
                     }
