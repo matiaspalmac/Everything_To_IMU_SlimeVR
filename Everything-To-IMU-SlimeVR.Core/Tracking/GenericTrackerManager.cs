@@ -1,5 +1,6 @@
 ﻿using Everything_To_IMU_SlimeVR.Osc;
 using SlimeImuProtocol.SlimeVR;
+using System.Drawing;
 using System.Net.Sockets;
 
 namespace Everything_To_IMU_SlimeVR.Tracking
@@ -322,7 +323,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             }
         }
 
-        internal static List<GenericControllerTracker> TrackersBluetooth { get => _trackersBluetooth; set => _trackersBluetooth = value; }
+        public static List<GenericControllerTracker> TrackersBluetooth { get => _trackersBluetooth; set => _trackersBluetooth = value; }
         public static int ControllerCount { get => _controllerCount; set => _controllerCount = value; }
         public int PollingRate { get => pollingRate; set => pollingRate = value; }
         public static bool DebugOpen { get; set; }

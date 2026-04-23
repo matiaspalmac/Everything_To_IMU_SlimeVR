@@ -7,7 +7,6 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 using System.Reflection;
-using System.Windows.Forms;
 using static Everything_To_IMU_SlimeVR.TrackerConfig;
 using SlimeImuProtocol.SlimeVR;
 
@@ -113,9 +112,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             EngageHaptics(300, 1);
         }
 
+        public static event EventHandler<string>? UserMessageRequested;
+
         public void Rediscover()
         {
-            MessageBox.Show(Debug);
+            UserMessageRequested?.Invoke(this, Debug);
         }
 
         public override string ToString()

@@ -127,4 +127,9 @@ public static class JSL
     public static extern void JslSetRumble(int deviceId, int smallRumble, int bigRumble);
     [DllImport("JoyShockLibrary")]
     public static extern void JslSetPlayerNumber(int deviceId, int number);
+
+    // Battery: -1 = charging, 0 = empty, 1 = low, 2 = medium, 3 = full.
+    // Call site guards against missing export (older DLLs).
+    [DllImport("JoyShockLibrary", EntryPoint = "JslGetBatteryLevel")]
+    public static extern int JslGetBatteryLevel(int deviceId);
 }

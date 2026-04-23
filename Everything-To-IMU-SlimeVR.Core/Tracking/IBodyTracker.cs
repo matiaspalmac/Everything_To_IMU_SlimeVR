@@ -16,6 +16,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         TrackerConfig.RotationReferenceType ExtensionYawReferenceTypeValue { get; set; }
         string Debug { get; }
 
+        // Packet telemetry — optional overrides (default via UDPHandler counters).
+        long PacketsSent => 0;
+        long SendFailures => 0;
+        bool ServerReachable => true;
+
         void Rediscover();
         Vector3 GetCalibration();
 

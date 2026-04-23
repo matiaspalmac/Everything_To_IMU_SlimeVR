@@ -10,13 +10,14 @@ public class AdaptiveComplementaryFilter {
 
     // State
     private Quaternion _orientation = Quaternion.Identity;
-    private DateTime _lastUpdateTime = DateTime.Now;
     private Vector3 _lastGyro = Vector3.Zero;
 
+    public AdaptiveComplementaryFilter() {
+        stopwatch.Start();
+    }
+
     public Quaternion Update(Quaternion accelOrientation, Vector3 gyroRates) {
-        // Calculate time delta
-        var now = DateTime.Now;
-        float deltaTime = (float)(stopwatch.Elapsed).TotalSeconds;
+        float deltaTime = (float)stopwatch.Elapsed.TotalSeconds;
         stopwatch.Restart();
 
         if (deltaTime <= 0)

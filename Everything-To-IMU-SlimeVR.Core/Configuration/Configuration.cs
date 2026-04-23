@@ -22,6 +22,8 @@ namespace Everything_To_IMU_SlimeVR
         private Dictionary<string, TrackerConfig> _trackerConfigUdpHaptics = new Dictionary<string, TrackerConfig>();
         private bool _simulatesThighs;
         private bool _audioHapticsActive = true;
+        private string _language = "en";
+        private string _theme = "Dark";
 
         public List<TrackerConfig> TrackerConfigs { get => _trackerConfigs; set => _trackerConfigs = value; }
         public List<TrackerConfig> TrackerConfigs3ds { get => _trackerConfig3ds; set => _trackerConfig3ds = value; }
@@ -39,6 +41,8 @@ namespace Everything_To_IMU_SlimeVR
         public string OscIpAddress { get => _oscIpAddress; set => _oscIpAddress = value; }
         public string PortInput { get => _portInput; set => _portInput = value; }
         public List<int> PortOutputs { get => _portOutputs; set => _portOutputs = value; }
+        public string Language { get => _language; set => _language = value; }
+        public string Theme { get => _theme; set => _theme = value; }
 
         public void SaveConfig()
         {

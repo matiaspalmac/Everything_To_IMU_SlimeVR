@@ -3,6 +3,9 @@ using System.Runtime.InteropServices;
 
 public class VQFWrapper : IDisposable {
     private IntPtr handle;
+    private readonly double[] _gyrBuf = new double[3];
+    private readonly double[] _accBuf = new double[3];
+    private readonly double[] _quatBuf = new double[4];
 
     private const string DllName = "vqf"; // or "libvqf" on macOS/Linux if not renamed
 
@@ -47,8 +50,20 @@ public class VQFWrapper : IDisposable {
 
     public double[] GetQuat6D() {
         double[] quat = new double[4];
-        VQF_GetQuat9D(handle, quat);
+        VQF_GetQuat6D(handle, quat);
         return quat;
+    }
+
+    // Zero-alloc hot-path: reuses internal buffers. Input vector is mapped to VQF convention (X, -Z, Y).
+    public void UpdateFast(System.Numerics.Vector3 gyro, System.Numerics.Vector3 accel) {
+        _gyrBuf[0] = gyro.X; _gyrBuf[1] = -gyro.Z; _gyrBuf[2] = gyro.Y;
+        _accBuf[0] = accel.X; _accBuf[1] = -accel.Z; _accBuf[2] = accel.Y;
+        VQF_Update(handle, _gyrBuf, _accBuf, null);
+    }
+
+    public System.Numerics.Quaternion GetQuat6DFast() {
+        VQF_GetQuat6D(handle, _quatBuf);
+        return new System.Numerics.Quaternion((float)_quatBuf[1], (float)_quatBuf[2], (float)_quatBuf[3], (float)_quatBuf[0]);
     }
 
     public void Dispose() {
