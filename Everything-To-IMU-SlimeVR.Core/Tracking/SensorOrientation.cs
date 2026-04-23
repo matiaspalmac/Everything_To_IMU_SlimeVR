@@ -27,12 +27,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private Vector3 _gyro;
         private byte _battery;
         private VQFWrapper _vqf;
+        private bool _jslStillnessEnabled;
         // Warm-up: suppress orientation emission until VQF has had ~200ms of stationary
         // samples to converge. Prevents the "spin on connect" where downstream sees the
         // first wildly-wrong quaternion before the accelerometer has tilted it down.
         // Threshold ~8.6°/s (squared in rad/s) — generous, picks up clear hand motion
         // without false-tripping on sensor noise.
-        private static readonly long WarmupTicksRequired = Stopwatch.Frequency / 5; // 200 ms
+        // 50 ms — was 200 ms, but the Sony factory bias subtraction + JSL Stillness mode
+        // applied earlier in this method already eliminate the ZRL drift that warm-up was
+        // hiding. Keep a small floor so a single noisy first sample doesn't escape.
+        private static readonly long WarmupTicksRequired = Stopwatch.Frequency / 20;
         private const float WarmupGyroStationaryThresholdSq = 0.0225f; // (0.15 rad/s)^2
         private long _warmupStableStartTicks = -1;
         private bool _warmupComplete = false;
@@ -72,11 +76,61 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 JSL.JslSetCallback(_callback);
             }
             OnNewJSLData += SensorOrientation_OnNewJSLData;
+            JoyCon1HidImuReader.SampleReady += OnJoyCon1HidSample;
+        }
+
+        // Joy-Con 1 / Switch Pro IMU samples coming from our parallel HID reader. Each JSL
+        // packet at ~67 Hz carries 3 samples 5 ms apart that JSL itself drops 2 of; this
+        // path catches all 3 and feeds them through VQF at the chip's true 200 Hz rate.
+        private bool _hidImuReaderTried;
+        private bool _hidImuReaderActive;
+        private void OnJoyCon1HidSample(object? sender, JoyCon1HidImuReader.Sample s)
+        {
+            if (s.JslIndex != _index || disposed) return;
+            try
+            {
+                int ctype = JSL.JslGetControllerType(_index);
+                var rawAccel = s.AccelG * 10f; // match JSL-pipeline scaling convention
+                var rawGyroRad = s.GyroDps.ConvertDegreesToRadians();
+                if (ctype == 2)
+                {
+                    rawAccel = new Vector3(rawAccel.X, -rawAccel.Y, -rawAccel.Z);
+                    rawGyroRad = new Vector3(rawGyroRad.X, -rawGyroRad.Y, -rawGyroRad.Z);
+                }
+                _accelerometer = rawAccel;
+                _gyro = rawGyroRad;
+                // VQF was constructed at JSL's 67 Hz cadence, but we now feed it at ~200 Hz.
+                // The dt mismatch is small (~3×) and VQF's tau-based filtering tolerates it
+                // far better than skipping the 2 extra samples. A full reinit at 5 ms dt is
+                // possible but means losing the rest-bias estimate VQF has already built; the
+                // current trade favours preserving that estimate.
+                if (_vqf != null)
+                {
+                    Update();
+                }
+            }
+            catch (Exception ex)
+            {
+                OnExceptionMessage?.Invoke(this, ex.Message + ":" + ex.StackTrace);
+            }
         }
 
         private void SensorOrientation_OnNewJSLData(object? sender, Tuple<int, JSL.JOY_SHOCK_STATE, JSL.JOY_SHOCK_STATE, JSL.IMU_STATE, JSL.IMU_STATE, float> e) {
             try {
                 if (e.Item1 == _index) {
+                    int ctype = JSL.JslGetControllerType(_index);
+
+                    // Joy-Con 1 / Switch Pro: try to attach our parallel HID reader once. If
+                    // it succeeds, we get all 3 samples per HID packet via OnJoyCon1HidSample
+                    // and JSL's IMU values become redundant — skip them here so we don't
+                    // double-feed VQF.
+                    if ((ctype == 1 || ctype == 2 || ctype == 3) && !_hidImuReaderTried)
+                    {
+                        _hidImuReaderTried = true;
+                        _hidImuReaderActive = JoyCon1HidImuReader.TryStart(_index);
+                    }
+                    if (_hidImuReaderActive) return;
+
                     var rawAccel = new Vector3(e.Item4.accelX, e.Item4.accelY, e.Item4.accelZ) * 10;
                     var rawGyroRad = (new Vector3(e.Item4.gyroX, e.Item4.gyroY, e.Item4.gyroZ)).ConvertDegreesToRadians();
 
@@ -84,11 +138,45 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     // rotated 180° around X vs Left, so Y+Z are physically inverted. Linux
                     // hid-nintendo applies the same fix. Must be done before VQF and before
                     // bias calibration so the bias estimate lives in the corrected frame.
-                    int ctype = JSL.JslGetControllerType(_index);
                     if (ctype == 2) // Joy-Con R
                     {
                         rawAccel = new Vector3(rawAccel.X, -rawAccel.Y, -rawAccel.Z);
                         rawGyroRad = new Vector3(rawGyroRad.X, -rawGyroRad.Y, -rawGyroRad.Z);
+                    }
+
+                    // Sony factory cal: JSL does not parse feature report 0x05/0x02 for
+                    // DualShock 4 / DualSense (only the Switch family gets factory cal
+                    // applied internally). Apply here — bias + per-axis sensitivity for gyro,
+                    // bias + per-axis sensitivity for accel — all in JSL's already-converted
+                    // dps and g domains. ctype 4 = DS4, 5 = DualSense. Wii/3DS/Joy-Con use
+                    // their own pipelines.
+                    if (ctype == 4 || ctype == 5)
+                    {
+                        var cal = SonyImuCalibration.GetCalibration(_index);
+                        if (cal.Valid)
+                        {
+                            // Gyro: subtract ZRL bias, then per-axis sens trim (unitless ≈1.0).
+                            var biasRad = cal.GyroBiasDps.ConvertDegreesToRadians();
+                            rawGyroRad = (rawGyroRad - biasRad) * cal.GyroScale;
+
+                            // Accel: rawAccel is JSL's g value × 10 (legacy scaling from line
+                            // below). Bias is in g, so multiply by 10 to match before
+                            // subtracting. Scale is dimensionless.
+                            var biasAccelScaled = cal.AccelBiasG * 10f;
+                            rawAccel = (rawAccel - biasAccelScaled) * cal.AccelScale;
+                        }
+
+                        // JSL ships with a stillness-based bias estimator (GamepadMotion's
+                        // auto-cal path) that's off by default. Turn it on once per device
+                        // so drift over long sessions is corrected on top of the static
+                        // factory bias we just applied. Safe to enable even when our cal
+                        // succeeded — JSL's estimator converges to zero if the static bias
+                        // is already correct.
+                        if (!_jslStillnessEnabled)
+                        {
+                            _jslStillnessEnabled = true;
+                            try { JSL.JslSetAutomaticCalibration(_index, true); } catch { }
+                        }
                     }
 
                     _accelerometer = rawAccel;
@@ -158,6 +246,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
         public void Dispose() {
             disposed = true;
+            try { JoyCon1HidImuReader.SampleReady -= OnJoyCon1HidSample; } catch { }
+            if (_hidImuReaderActive)
+            {
+                try { JoyCon1HidImuReader.Stop(_index); } catch { }
+            }
         }
     }
 }

@@ -108,6 +108,9 @@ public static class JSL
     [DllImport("JoyShockLibrary")]
     public static extern void JslPauseContinuousCalibration(int deviceId);
     [DllImport("JoyShockLibrary")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern void JslSetAutomaticCalibration(int deviceId, [MarshalAs(UnmanagedType.I1)] bool enabled);
+    [DllImport("JoyShockLibrary")]
     public static extern void JslGetCalibrationOffset(int deviceId, ref float xOffset, ref float yOffset, ref float zOffset);
     [DllImport("JoyShockLibrary")]
     public static extern void JslGetCalibrationOffset(int deviceId, float xOffset, float yOffset, float zOffset);
