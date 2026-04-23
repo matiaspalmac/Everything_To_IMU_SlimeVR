@@ -39,10 +39,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public event EventHandler<string> OnTrackerError;
 
         public ThreeDsControllerTracker(string id) {
-            Initialize(id);
+            _ = Initialize(id);
         }
-        public async void Initialize(string id) {
-            Task.Run(async () => {
+        public Task Initialize(string id) {
+            return Task.Run(async () => {
                 try {;
                     _ip = id;
                     macSpoof = id + "3DS_Tracker";
@@ -50,7 +50,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     udpHandler = new UDPHandler("3DS_Tracker" + id, _macAddressBytes,
                  FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED,1);
                     udpHandler.Active = true;
-                    Recalibrate();
+                    _ = Recalibrate();
                     Forwarded3DSDataManager.NewPacketReceived += NewPacketReceived;
                     _ready = true;
                 } catch (Exception e) {
@@ -99,8 +99,8 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             }
             return _ready;
         }
-        public async void Recalibrate() {
-            await Task.Delay(5000);
+        public async Task Recalibrate() {
+            await Task.Delay(TrackerTimings.RecalibrateSettleMsJsl);
             _calibratedHeight = OpenVRReader.GetHMDHeight();
             var value = Forwarded3DSDataManager.DeviceMap.ElementAt(_index);
             _rotation = new Quaternion(value.Value.quatX, value.Value.quatY, value.Value.quatZ, value.Value.quatW);

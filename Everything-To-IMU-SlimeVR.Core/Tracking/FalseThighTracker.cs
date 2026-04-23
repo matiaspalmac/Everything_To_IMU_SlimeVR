@@ -35,10 +35,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public bool IsClamped { get => _isClamped; set => _isClamped = value; }
 
         public FalseThighTracker(RotationReferenceType rotationReferenceType) {
-            Initialize(rotationReferenceType);
+            _ = Initialize(rotationReferenceType);
         }
 
-        public async void Initialize(RotationReferenceType rotationReferenceType) {
+        public Task Initialize(RotationReferenceType rotationReferenceType) {
             Task.Run(async () => {
                 YawReferenceTypeValue = rotationReferenceType;
                 _macSpoof = HashUtility.CalculateMD5Hash(rotationReferenceType.ToString());
@@ -57,10 +57,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                         Thread.Sleep(16);
                     } else {
                         _udpHandler.Active = false;
-                        Thread.Sleep(10000);
+                        Thread.Sleep(TrackerTimings.IdleDisabledPollMs);
                     }
                 }
             });
+            return Task.CompletedTask;
         }
         public float SpecialClamp(float value, float lessThan, float greaterThan, float clamp) {
             if (value < lessThan || value > greaterThan) {

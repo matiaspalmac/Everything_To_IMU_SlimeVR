@@ -15,9 +15,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public static ConcurrentDictionary<string, ThreeDSState> DeviceMap { get => _deviceMap; set => _deviceMap = value; }
 
         public Forwarded3DSDataManager() {
-            Task.Run(() => {
-                Initialize();
-            });
+            Task.Run(() => Initialize());
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -33,7 +31,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             Quaternion qRoll = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, roll);
             return Quaternion.Normalize(Quaternion.Concatenate(qRoll, qPitch));
         }
-        async void Initialize() {
+        async Task Initialize() {
             UdpClient udpClient = new UdpClient(listenPort); // Match port from 3DS
             _deviceMap = new ConcurrentDictionary<string, ThreeDSState>();
             int expectedSize = Marshal.SizeOf(typeof(ImuPacket));

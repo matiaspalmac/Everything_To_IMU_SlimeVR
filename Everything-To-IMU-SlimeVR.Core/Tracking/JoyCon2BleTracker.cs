@@ -220,7 +220,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 // Watch for hardware disconnect so the manager can recycle our slot.
                 _device.ConnectionStatusChanged += OnConnectionStatusChanged;
 
-                Recalibrate();
+                _ = Recalibrate();
                 _ready = true;
             } catch (Exception ex) {
                 OnTrackerError?.Invoke(this, $"JoyCon2 init: {ex.Message}");
@@ -509,8 +509,8 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
         public Vector3 GetCalibration() => -_rotation.QuaternionToEuler();
 
-        public async void Recalibrate() {
-            await Task.Delay(3000);
+        public async Task Recalibrate() {
+            await Task.Delay(TrackerTimings.RecalibrateSettleMsBle);
             _rotationCalibration = GetCalibration();
             try { await _udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_FULL); } catch { }
         }

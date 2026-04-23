@@ -75,9 +75,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		public event EventHandler<string> OnTrackerError;
 
 		public WiiTracker(string id) {
-			Initialize(id);
+			_ = Initialize(id);
 		}
-		public async void Initialize(string id) {
+		public async Task Initialize(string id) {
 			await Task.Run(async () => {
 				try {
 					var split = id.Split(":");
@@ -92,7 +92,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 					udpHandler = new UDPHandler(_firmwareId, _macAddressBytes,
 				 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 2);
 					udpHandler.Active = true;
-					Recalibrate();
+					_ = Recalibrate();
 					ForwardedWiimoteManager.NewPacketReceived += NewPacketReceived;
 					_ready = true;
 				} catch (Exception e) {
@@ -212,7 +212,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 			return _ready;
 		}
 
-		public async void Recalibrate() {
+		public async Task Recalibrate() {
 
 			_calibratedHeight = OpenVRReader.GetHMDHeight();
 			if (_motionStateList == null || !_motionStateList.TryGetValue(_wiimoteId, out var wiimoteInfo)) {
@@ -227,7 +227,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 			if (ForwardedWiimoteManager.WiimoteTrackers.TryGetValue(_rememberedStringId, out var stateTracker)) {
 				stateTracker.StartCalibration();
 			}
-			await Task.Delay(3000);
+			await Task.Delay(TrackerTimings.RecalibrateSettleMsBle);
 			if (udpHandler != null) {
 				await udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_FULL);
 			}

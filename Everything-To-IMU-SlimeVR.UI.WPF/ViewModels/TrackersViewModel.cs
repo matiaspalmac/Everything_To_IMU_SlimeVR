@@ -180,7 +180,7 @@ public partial class TrackersViewModel : ObservableObject
 
     private void PersistCurrentTrackerConfig()
     {
-        try { AppServices.Instance.Configuration?.SaveConfig(); } catch { }
+        try { AppServices.Instance.Configuration?.SaveDebounced(); } catch { }
     }
 
     [RelayCommand]
@@ -204,9 +204,9 @@ public partial class TrackersViewModel : ObservableObject
         if (SelectedTracker?.Tracker is not { } tracker) return;
         try
         {
-            if (tracker is GenericControllerTracker g) g.Recalibrate();
-            else if (tracker is WiiTracker w) w.Recalibrate();
-            else if (tracker is ThreeDsControllerTracker d) d.Recalibrate();
+            if (tracker is GenericControllerTracker g) _ = g.Recalibrate();
+            else if (tracker is WiiTracker w) _ = w.Recalibrate();
+            else if (tracker is ThreeDsControllerTracker d) _ = d.Recalibrate();
         }
         catch { }
     }
