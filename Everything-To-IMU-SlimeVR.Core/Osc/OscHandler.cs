@@ -50,26 +50,52 @@ namespace Everything_To_IMU_SlimeVR.Osc
             if (_cancelTokenSource != null)
             {
                 _cancelTokenSource.Cancel();
-                _cancelTokenSource = new CancellationTokenSource();
+                try
+                {
+                    _oscReceiveTask?.Wait(2000);
+                }
+                catch { /* task cancellation is expected */ }
+                _cancelTokenSource.Dispose();
             }
+            _cancelTokenSource = new CancellationTokenSource();
             if (_oscClient != null)
             {
                 _oscClient.Dispose();
+                _oscClient = null;
+            }
+            foreach (var kvp in _portToUdpClientDictionary)
+            {
+                try { kvp.Value.Dispose(); } catch { }
             }
             _portToUdpClientDictionary.Clear();
-            var port = int.Parse(Configuration.Instance.PortInput);
+            if (!int.TryParse(Configuration.Instance.PortInput, out var port) || port < 1 || port > 65535)
+            {
+                Debug.WriteLine($"Invalid OSC input port: {Configuration.Instance.PortInput}");
+                return;
+            }
             if (!Configuration.Instance.PortOutputs.Contains(port))
             {
-                _oscClient = new UdpClient(port);
-                Task.Run(() =>
+                try
                 {
-                    _oscReceiveTask = OscReceiveTask(_cancelTokenSource.Token);
-                });
+                    _oscClient = new UdpClient(port);
+                }
+                catch (SocketException ex)
+                {
+                    Debug.WriteLine($"OSC bind failed on port {port}: {ex.Message}");
+                    return;
+                }
+                var token = _cancelTokenSource.Token;
+                _oscReceiveTask = Task.Run(() => OscReceiveTask(token));
             }
         }
 
         private static bool IsBundle(ReadOnlySpan<byte> buffer)
         {
+            if (buffer.Length < BundleAddressBytes.Length) return false;
+            for (int i = 0; i < BundleAddressBytes.Length; i++)
+            {
+                if (buffer[i] != BundleAddressBytes[i]) return false;
+            }
             return true;
         }
         /// <summary>
@@ -101,13 +127,13 @@ namespace Everything_To_IMU_SlimeVR.Osc
                     if (IsBundle(packet.Buffer))
                     {
                         var bundle = ParseBundle(packet.Buffer);
-                        if (bundle.Timestamp > DateTime.Now)
+                        var delay = bundle.Timestamp - DateTime.Now;
+                        if (delay > TimeSpan.Zero && delay < TimeSpan.FromSeconds(1))
                         {
-                            // Wait for the specified timestamp
                             _ = Task.Run(
                                 async () =>
                                 {
-                                    await Task.Delay(bundle.Timestamp - DateTime.Now, cancelToken);
+                                    await Task.Delay(delay, cancelToken);
                                     OnOscBundle(bundle);
                                 },
                                 cancelToken

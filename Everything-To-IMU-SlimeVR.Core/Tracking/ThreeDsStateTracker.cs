@@ -48,7 +48,16 @@ public class ThreeDsStateTracker {
             if (gravityCalibrationSamples < 100) {
                 accumulatedY += y;
                 gravityCalibrationSamples++;
-                divisionValue = 9.8f / (accumulatedY / gravityCalibrationSamples);
+                int avg = accumulatedY / gravityCalibrationSamples;
+                if (avg > 0) {
+                    divisionValue = 9.8f / avg;
+                }
+            }
+            if (!float.IsFinite(divisionValue) || divisionValue == 0f) {
+                return new ThreeDSState {
+                    accelX = value.ax, accelY = value.ay, accelZ = value.az,
+                    gyroX = value.gx, gyroY = value.gy, gyroZ = value.gz
+                };
             }
             var accel = new Vector3(((float)value.ax * divisionValue),
                 ((float)value.az * divisionValue),

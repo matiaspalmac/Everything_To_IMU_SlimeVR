@@ -36,27 +36,51 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         async void Initialize() {
             UdpClient udpClient = new UdpClient(listenPort); // Match port from 3DS
             _deviceMap = new ConcurrentDictionary<string, ThreeDSState>();
+            int expectedSize = Marshal.SizeOf(typeof(ImuPacket));
             Console.WriteLine("Listening for IMU data...");
             while (true) {
                 IPEndPoint remoteEP = new IPEndPoint(IPAddress.Any, 0);
-                byte[] data = udpClient.Receive(ref remoteEP);
+                byte[] data;
+                try {
+                    data = udpClient.Receive(ref remoteEP);
+                } catch (Exception ex) {
+                    Console.WriteLine($"3DS recv error: {ex.Message}");
+                    await Task.Delay(500);
+                    continue;
+                }
 
-                // Identify by IP
-                Task.Run(() => {
-                    string ip = remoteEP.Address.ToString();
+                if (!IsAllowedSource(remoteEP.Address)) {
+                    continue;
+                }
+                if (data.Length != expectedSize) {
+                    continue;
+                }
 
-                    if (data.Length == Marshal.SizeOf(typeof(ImuPacket))) {
-                        GCHandle handle = GCHandle.Alloc(data, GCHandleType.Pinned);
-                        var value = (ImuPacket)Marshal.PtrToStructure(handle.AddrOfPinnedObject(), typeof(ImuPacket));
-                        if (!_stateTracker.ContainsKey(ip)) {
-                            _stateTracker[ip] = new ThreeDsStateTracker();
-                        }
-                        _deviceMap[ip] = _stateTracker[ip].ProcessPacket(value);
-                        handle.Free();
-                        NewPacketReceived?.Invoke(this, ip);
-                    }
-                });
+                string ip = remoteEP.Address.ToString();
+                GCHandle handle = GCHandle.Alloc(data, GCHandleType.Pinned);
+                ImuPacket value;
+                try {
+                    value = (ImuPacket)Marshal.PtrToStructure(handle.AddrOfPinnedObject(), typeof(ImuPacket));
+                } finally {
+                    handle.Free();
+                }
+                if (!_stateTracker.ContainsKey(ip)) {
+                    _stateTracker[ip] = new ThreeDsStateTracker();
+                }
+                _deviceMap[ip] = _stateTracker[ip].ProcessPacket(value);
+                NewPacketReceived?.Invoke(this, ip);
             }
+        }
+
+        static bool IsAllowedSource(IPAddress addr) {
+            if (IPAddress.IsLoopback(addr)) return true;
+            if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+            var bytes = addr.GetAddressBytes();
+            if (bytes[0] == 10) return true;
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+            if (bytes[0] == 192 && bytes[1] == 168) return true;
+            if (bytes[0] == 169 && bytes[1] == 254) return true;
+            return false;
         }
     }
 }

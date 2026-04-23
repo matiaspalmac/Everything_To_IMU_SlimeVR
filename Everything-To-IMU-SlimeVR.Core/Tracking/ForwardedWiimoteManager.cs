@@ -33,26 +33,47 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public static ConcurrentDictionary<string, WiimoteStateTracker> WiimoteTrackers { get => _wiimoteTrackers; set => _wiimoteTrackers = value; }
 
         async Task StartListener() {
+            TcpListener listener = null;
             try {
-                _memoryWipeTimer.Start();
+                listener = new TcpListener(IPAddress.Any, 9909);
+                listener.Start();
+                Console.WriteLine("TCP Listener started on port 9909...");
+
                 while (true) {
-                    TcpListener listener = new TcpListener(IPAddress.Any, 9909);
-                    listener.Start();
-                    Console.WriteLine("TCP Listener started on port 9909...");
-
-                    while (_memoryWipeTimer.ElapsedMilliseconds < 1200000) {
-                        try {
-                            var client = await listener.AcceptTcpClientAsync();
-                            _ = Task.Run(() => HandleClient(client));
-                        } catch (Exception ex) {
-                            Console.WriteLine($"Listener error: {ex.Message}");
+                    try {
+                        var client = await listener.AcceptTcpClientAsync();
+                        var endpoint = client.Client.RemoteEndPoint as IPEndPoint;
+                        if (endpoint == null || !IsAllowedSource(endpoint.Address)) {
+                            Console.WriteLine($"Rejected TCP connection from {endpoint?.Address}");
+                            client.Close();
+                            continue;
                         }
+                        _ = Task.Run(() => HandleClient(client));
+                    } catch (Exception ex) {
+                        Console.WriteLine($"Listener error: {ex.Message}");
+                        await Task.Delay(1000);
                     }
-                    listener?.Stop();
                 }
-            } catch {
-
+            } catch (Exception ex) {
+                Console.WriteLine($"Listener fatal: {ex.Message}");
+            } finally {
+                listener?.Stop();
             }
+        }
+
+        static bool IsAllowedSource(IPAddress addr) {
+            if (IPAddress.IsLoopback(addr)) return true;
+            if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+            var bytes = addr.GetAddressBytes();
+            // 10.0.0.0/8
+            if (bytes[0] == 10) return true;
+            // 172.16.0.0/12
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+            // 192.168.0.0/16
+            if (bytes[0] == 192 && bytes[1] == 168) return true;
+            // 169.254.0.0/16 link-local (used by some consoles/adapters)
+            if (bytes[0] == 169 && bytes[1] == 254) return true;
+            return false;
         }
 
         async Task HandleClient(TcpClient client) {

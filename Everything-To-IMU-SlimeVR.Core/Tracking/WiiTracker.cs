@@ -51,6 +51,27 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		public bool SupportsHaptics => true;
 		public bool SupportsIMU => true;
 
+		private float _lastBatteryFraction;
+		public float BatteryLevel => _lastBatteryFraction;
+
+		private long _sampleCount;
+		private DateTime _lastRateWindow = DateTime.UtcNow;
+		private double _lastRate;
+		public double Hz
+		{
+			get
+			{
+				var elapsed = (DateTime.UtcNow - _lastRateWindow).TotalSeconds;
+				if (elapsed >= 1.0)
+				{
+					_lastRate = _sampleCount / elapsed;
+					_sampleCount = 0;
+					_lastRateWindow = DateTime.UtcNow;
+				}
+				return _lastRate;
+			}
+		}
+
 		public event EventHandler<string> OnTrackerError;
 
 		public WiiTracker(string id) {
@@ -90,6 +111,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 			var accelerationMultiplier = 1f;
 			var accelerationNunchuckMultiplier = 1f;
 			if (_ready) {
+				_sampleCount++;
 				try {
 					var value = _motionStateList[_wiimoteId];
 					if (value.ButtonUp) {
@@ -100,7 +122,6 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 					} else if (!_isAlreadyUpdating) {
 						_isAlreadyUpdating = true;
 						var hmdHeight = OpenVRReader.GetHMDHeight();
-						bool isClamped = !_falseThighTracker.IsClamped;
 						var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
 						float trackerEuler = trackerRotation.GetYawFromQuaternion();
 
@@ -124,14 +145,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 							(value.MotionPlusSupport != 0 ? $"X:{value.WiimoteGyroX}, Y:{value.WiimoteGyroY}, Z:{value.WiimoteGyroZ}\r\n" : "No Motion Plus Support\r\n") +
 							$"Yaw Reference Rotation:\r\n" +
 							$"Y:{trackerEuler}\r\n"
-							+ _falseThighTracker.Debug;
+							+ (_falseThighTracker?.Debug ?? string.Empty);
 						}
 						float finalX = -euler.X;
 						float finalY = euler.Y;
 						float finalZ = 0;
 
-						await udpHandler.SetSensorBattery(Math.Clamp(value.BatteryLevel / 100f, 0f, 1f), 3.7f);
-						var shortVector = new Vector3Short(value.WiimoteAccelZ, value.WiimoteAccelY, value.WiimoteAccelZ);
+						// PacketBuilder divides by 100, so send 0..100 range (BatteryLevel is 0..100).
+						_lastBatteryFraction = Math.Clamp(value.BatteryLevel / 100f, 0f, 1f);
+						await udpHandler.SetSensorBattery(Math.Clamp((float)value.BatteryLevel, 0f, 100f), 3.7f);
+						var shortVector = new Vector3Short(value.WiimoteAccelX, value.WiimoteAccelY, value.WiimoteAccelZ);
 						await udpHandler.SetSensorAcceleration(new Vector3(
 	(value.WiimoteAccelX / 512f) * accelerationMultiplier,
 	(value.WiimoteAccelY / 512f) * accelerationMultiplier,
@@ -192,16 +215,22 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		public async void Recalibrate() {
 
 			_calibratedHeight = OpenVRReader.GetHMDHeight();
-			var value = _motionStateList.ElementAt(_index);
-			var rotation = value.Value.WiimoteGravityOrientation;
+			if (_motionStateList == null || !_motionStateList.TryGetValue(_wiimoteId, out var wiimoteInfo)) {
+				return;
+			}
+			var rotation = wiimoteInfo.WiimoteGravityOrientation;
 			_wiimoteRotationCalibration = -rotation.QuaternionToEuler();
 			RotationCalibration = _wiimoteRotationCalibration;
 
-			rotation = value.Value.NunchuckOrientation;
+			rotation = wiimoteInfo.NunchuckOrientation;
 			_nunchuckRotationCalibration = -rotation.QuaternionToEuler();
-			ForwardedWiimoteManager.WiimoteTrackers[_rememberedStringId].StartCalibration();
+			if (ForwardedWiimoteManager.WiimoteTrackers.TryGetValue(_rememberedStringId, out var stateTracker)) {
+				stateTracker.StartCalibration();
+			}
 			await Task.Delay(3000);
-			await udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_FULL);
+			if (udpHandler != null) {
+				await udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_FULL);
+			}
 		}
 		public void Rediscover() {
 			udpHandler.Initialize(FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, _macAddressBytes);
@@ -235,10 +264,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 			_hapticEndTime = DateTime.Now.AddMilliseconds(duration);
 			if (!isAlreadyVibrating) {
 				isAlreadyVibrating = true;
-				Task.Run(() => {
+				_ = Task.Run(async () => {
 					ForwardedWiimoteManager.RumbleState[_wiimoteClient][_id] = 1;
 					while (DateTime.Now < _hapticEndTime) {
-						Thread.Sleep(10);
+						await Task.Delay(10);
 					}
 					ForwardedWiimoteManager.RumbleState[_wiimoteClient][_id] = 0;
 					isAlreadyVibrating = false;
