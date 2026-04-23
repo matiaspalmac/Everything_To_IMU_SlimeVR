@@ -100,6 +100,22 @@
                                    Text="{Binding AccZ, StringFormat={}{0:+0.00;-0.00; 0.00}}" />
                     </UniformGrid>
                 </Grid>
+                <TextBlock Margin="0,8,0,0"
+                           FontFamily="Consolas" FontSize="11"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           Text="{Binding FirmwareInfoText}"
+                           TextTrimming="CharacterEllipsis">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding FirmwareInfoText}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
         </Border>
 

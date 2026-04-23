@@ -56,6 +56,8 @@ public partial class DebugViewModel : ObservableObject
     [ObservableProperty] private string _serverReachableText = "—";
     [ObservableProperty] private bool _hasPacketDrops;
 
+    [ObservableProperty] private string _firmwareInfoText = "";
+
     private readonly Queue<(DateTime t, Vector3 e)> _history = new();
     private DateTime _lastSampleTime;
     private DateTime _lastSpikeTime;
@@ -128,15 +130,8 @@ public partial class DebugViewModel : ObservableObject
         const double r2d = 180.0 / Math.PI;
         EuDegX = e.X * r2d; EuDegY = e.Y * r2d; EuDegZ = e.Z * r2d;
 
-        try
-        {
-            var accelProp = tracker.GetType().GetProperty("Acceleration");
-            if (accelProp?.GetValue(tracker) is Vector3 a)
-            {
-                AccX = a.X; AccY = a.Y; AccZ = a.Z;
-            }
-        }
-        catch { }
+        var a = tracker.Acceleration;
+        AccX = a.X; AccY = a.Y; AccZ = a.Z;
 
         // Chips: rolling stats over last 10s
         var now = DateTime.UtcNow;
@@ -209,6 +204,15 @@ public partial class DebugViewModel : ObservableObject
         HasPacketDrops = drops > 0;
         PacketDropsText = drops == 0 ? "0 drops" : $"{drops:N0} drops";
         ServerReachableText = tracker.ServerReachable ? "server ✓" : "server ✗";
+
+        try
+        {
+            var info = SonyFirmwareInfo.GetInfo(tracker.Index);
+            FirmwareInfoText = info == null
+                ? ""
+                : $"{info.BuildInfo}  fw=0x{info.FwVersion:X4}  hw=0x{info.HwVersion:X4}";
+        }
+        catch { }
 
         if (!IsPaused) SampleReady?.Invoke(this, e);
     }
