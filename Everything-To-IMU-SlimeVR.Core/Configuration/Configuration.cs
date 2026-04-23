@@ -25,6 +25,9 @@ namespace Everything_To_IMU_SlimeVR
         private bool _audioHapticsActive = true;
         private string _language = "en";
         private string _theme = "Dark";
+        private List<string> _joyCon2KnownAddresses = new List<string>();
+        private bool _notificationsEnabled = true;
+        private float _batteryLowThreshold = 0.15f;
 
         public List<TrackerConfig> TrackerConfigs { get => _trackerConfigs; set => _trackerConfigs = value; }
         public List<TrackerConfig> TrackerConfigs3ds { get => _trackerConfig3ds; set => _trackerConfig3ds = value; }
@@ -45,12 +48,61 @@ namespace Everything_To_IMU_SlimeVR
         public List<int> PortOutputs { get => _portOutputs; set => _portOutputs = value; }
         public string Language { get => _language; set => _language = value; }
         public string Theme { get => _theme; set => _theme = value; }
+        public List<string> JoyCon2KnownAddresses { get => _joyCon2KnownAddresses; set => _joyCon2KnownAddresses = value ?? new(); }
+        public bool NotificationsEnabled { get => _notificationsEnabled; set => _notificationsEnabled = value; }
+        public float BatteryLowThreshold { get => _batteryLowThreshold; set => _batteryLowThreshold = Math.Clamp(value, 0.01f, 0.5f); }
+
+        public void RememberJoyCon2Address(ulong address)
+        {
+            string hex = address.ToString("X12");
+            if (_joyCon2KnownAddresses.Contains(hex)) return;
+            _joyCon2KnownAddresses.Add(hex);
+            try { SaveDebounced(); } catch { }
+        }
 
         public void SaveConfig()
         {
             _lastConfigSave = DateTime.UtcNow;
             string savePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
             File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+        }
+
+        // Debounce interval — slider drags, rapid clicks coalesce into one write. Max data loss
+        // window on crash = this value. 2s keeps SSD write volume low while limiting exposure.
+        private const int SaveDebounceMs = 2000;
+        [JsonIgnore] private System.Threading.Timer? _saveDebounceTimer;
+        [JsonIgnore] private readonly object _saveDebounceLock = new();
+
+        /// <summary>
+        /// Coalesced save — call freely on every UI mutation. Actual disk write happens once the
+        /// stream of calls quiets for <see cref="SaveDebounceMs"/>. For irrecoverable state (exit,
+        /// crash handler) call <see cref="SaveConfig"/> directly.
+        /// </summary>
+        public void SaveDebounced()
+        {
+            lock (_saveDebounceLock)
+            {
+                if (_saveDebounceTimer == null)
+                {
+                    _saveDebounceTimer = new System.Threading.Timer(_ =>
+                    {
+                        try { SaveDebounced(); } catch { }
+                    });
+                }
+                _saveDebounceTimer.Change(SaveDebounceMs, System.Threading.Timeout.Infinite);
+            }
+        }
+
+        /// <summary>
+        /// Flush any pending debounced save immediately. Call on shutdown.
+        /// </summary>
+        public void FlushPendingSave()
+        {
+            lock (_saveDebounceLock)
+            {
+                _saveDebounceTimer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            }
+            try { SaveDebounced(); } catch { }
         }
         public TimeSpan TimeSinceLastConfig()
         {
@@ -77,7 +129,7 @@ namespace Everything_To_IMU_SlimeVR
                 _controllerMounts[macKey] = c;
             }
             c.YawDegrees = ((c.YawDegrees + deltaDegrees) % 360 + 360) % 360;
-            try { SaveConfig(); } catch { }
+            try { SaveDebounced(); } catch { }
             return c.YawDegrees;
         }
 
@@ -111,7 +163,7 @@ namespace Everything_To_IMU_SlimeVR
                 _controllerMounts[macKey] = c;
             }
             c.GyroScaleTrim = trim;
-            try { SaveConfig(); } catch { }
+            try { SaveDebounced(); } catch { }
         }
         public static Configuration LoadConfig()
         {

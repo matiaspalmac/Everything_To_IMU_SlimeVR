@@ -113,12 +113,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         private bool waitingForButton1Release;
         private bool waitingForButton2Release;
         private bool waitingForButton3Release;
+        private bool _homeHeld;
+        private DateTime _homePressedAt;
+        private bool _homeLongPressFired;
+        private const int HomeLongPressMs = 1000;
 
         public GenericControllerTracker(int index, Color colour)
         {
-            Initialize(index, colour);
+            _ = Initialize(index, colour);
         }
-        public async void Initialize(int index, Color colour)
+        public async Task Initialize(int index, Color colour)
         {
             Task.Run(async () =>
             {
@@ -180,7 +184,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     // CALIBRATION_ACTION (type 21) when the user presses a physical reset button
                     // on the controller (see Recalibrate / CheckControllerInputs). Applying a
                     // second local offset in response to a server packet would double-offset.
-                    Recalibrate();
+                    _ = Recalibrate();
                     _sensorOrientation.OnExceptionMessage += _sensorOrientation_OnExceptionMessage;
                     _ready = true;
                 }
@@ -346,9 +350,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             }
             return _ready;
         }
-        public async void Recalibrate()
+        public async Task Recalibrate()
         {
-            await Task.Delay(5000);
+            await Task.Delay(TrackerTimings.RecalibrateSettleMsJsl);
             _calibratedHeight = OpenVRReader.GetHMDHeight();
             _rotationCalibration = GetCalibration();
             await udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_FULL);
@@ -383,12 +387,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         private int ComputeLedColor()
         {
             if (!_ready) return unchecked((int)0xFF606060); // dim gray = connecting
-            if (_lastBatteryFraction > 0f && _lastBatteryFraction < 0.15f)
+            float lowThresh = Configuration.Instance?.BatteryLowThreshold ?? 0.15f;
+            if (_lastBatteryFraction > 0f && _lastBatteryFraction < lowThresh)
                 return unchecked((int)0xFFED6A5A); // red = low battery (shared VizX brand)
-            // Streaming state: indigo if calibrated, amber if not.
-            // We don't have direct calibration-done visibility here, so use a simple proxy:
-            // if udpHandler is active and ready flag set, treat as streaming.
-            return unchecked((int)0xFF6E8CF0); // indigo = streaming healthy
+            // Streaming state: body-slot color from haptic binding, falls back to indigo.
+            return LedColorPalette.ForBodyBinding(_hapticNodeBinding);
         }
 
         public void CheckControllerInputs(JSL.JOY_SHOCK_STATE state)
@@ -436,6 +439,31 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     udpHandler.SendControllerButton(FirmwareConstants.ControllerButton.BUTTON_2_UNHELD, 0);
                     waitingForButton2Release = false;
                 }
+            }
+            // Home (bit 16): short press -> RESET_YAW, long press (>=1s) -> RESET_FULL.
+            bool homeNow = HasButton(state, 0x10000);
+            if (homeNow && !_homeHeld)
+            {
+                _homeHeld = true;
+                _homePressedAt = DateTime.UtcNow;
+                _homeLongPressFired = false;
+            }
+            else if (homeNow && _homeHeld && !_homeLongPressFired)
+            {
+                if ((DateTime.UtcNow - _homePressedAt).TotalMilliseconds >= HomeLongPressMs)
+                {
+                    _homeLongPressFired = true;
+                    try { _ = udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_FULL); } catch { }
+                }
+            }
+            else if (!homeNow && _homeHeld)
+            {
+                if (!_homeLongPressFired)
+                {
+                    try { _ = udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_YAW); } catch { }
+                }
+                _homeHeld = false;
+                _homeLongPressFired = false;
             }
             // Menu/Recenter
             if (HasButton(state, 0x00020) || HasButton(state, 0x00010))
@@ -527,6 +555,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         public bool Ready { get => _ready; set => _ready = value; }
         public bool Disconnected { get => _disconnected; set => _disconnected = value; }
         public int Id { get => _id; set => _id = value; }
+        public int Index => _index;
         public string MacSpoof { get => macSpoof; set => macSpoof = value; }
         public Vector3 Euler { get => _euler; set => _euler = value; }
         public Vector3 Gyro { get => _gyro; set => _gyro = value; }

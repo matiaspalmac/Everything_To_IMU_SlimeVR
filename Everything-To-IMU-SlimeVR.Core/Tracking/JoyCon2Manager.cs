@@ -53,6 +53,21 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     _watcher = null;
                 }
             }
+            TryReconnectKnown();
+        }
+
+        private static void TryReconnectKnown() {
+            var cfg = Configuration.Instance;
+            if (cfg?.JoyCon2KnownAddresses == null) return;
+            foreach (var hex in cfg.JoyCon2KnownAddresses.ToArray()) {
+                if (!ulong.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out ulong addr)) continue;
+                if (_recentAttempts.TryGetValue(addr, out var last) && DateTime.UtcNow - last < ReconnectCooldown) continue;
+                lock (_lock) {
+                    if (_trackers.Any(t => t.BluetoothAddress == addr && !t.Disconnected)) continue;
+                }
+                _recentAttempts[addr] = DateTime.UtcNow;
+                _ = ConnectAsync(addr, JoyCon2BleTracker.Variant.Unknown);
+            }
         }
 
         public static void Stop() {
@@ -173,6 +188,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     _trackers.Add(tracker);
                 }
                 tracker.OnTrackerError += (s, e) => OnError?.Invoke(s, e);
+                try { Configuration.Instance?.RememberJoyCon2Address(address); } catch { }
                 TrackerAdded?.Invoke(null, tracker);
             } catch (Exception ex) {
                 OnError?.Invoke(null, $"ConnectAsync({address:X12}): {ex.Message}");
