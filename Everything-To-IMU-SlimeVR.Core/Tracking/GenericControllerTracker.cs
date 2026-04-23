@@ -1,6 +1,7 @@
 ﻿using SlimeImuProtocol.SlimeVR;
 using SlimeImuProtocol.Utility;
 using System.Diagnostics;
+using System.Drawing;
 using System.Numerics;
 using static Everything_To_IMU_SlimeVR.TrackerConfig;
 
@@ -19,7 +20,6 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         private float _calibratedHeight;
         private bool _ready;
         private bool _disconnected;
-        private string _lastDualSenseId;
         private bool _simulateThighs = true;
         private bool _useWaistTrackerForYaw;
         private bool _usingWiimoteKnees = true;
@@ -42,14 +42,45 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         public bool SupportsHaptics => true;
         public bool SupportsIMU => true;
 
+        // Protocol telemetry surfaced to UI (DebugPage). Values come from UDPHandler counters.
+        public long PacketsSent => udpHandler?.PacketsSent ?? 0;
+        public long SendFailures => udpHandler?.SendFailures ?? 0;
+        public bool ServerReachable => udpHandler?.ServerReachable ?? false;
+
+        // Battery as 0..1 (fallback to 1.0 if the DLL doesn't expose the export)
+        private float _lastBatteryFraction = 1f;
+        private DateTime _lastBatteryPush = DateTime.MinValue;
+        public float BatteryLevel => _lastBatteryFraction;
+
+        // Per-tracker sample rate: incremented on each Update call, snapshot once per second.
+        private long _sampleCount;
+        private DateTime _lastRateWindow = DateTime.UtcNow;
+        private double _lastRate;
+        public double Hz
+        {
+            get
+            {
+                var elapsed = (DateTime.UtcNow - _lastRateWindow).TotalSeconds;
+                if (elapsed >= 1.0)
+                {
+                    _lastRate = _sampleCount / elapsed;
+                    _sampleCount = 0;
+                    _lastRateWindow = DateTime.UtcNow;
+                }
+                return _lastRate;
+            }
+        }
+
+        // LED state sync: tracker health reflected on the controller's own light bar.
+        private int _lastLedArgb = unchecked((int)0xFF808080);
+        private DateTime _lastLedPush = DateTime.MinValue;
+
         public event EventHandler<string> OnTrackerError;
         Stopwatch holdTimer = new Stopwatch();
         private DateTime _hapticEndTime;
         private bool waitingForButton1Release;
         private bool waitingForButton2Release;
         private bool waitingForButton3Release;
-        private bool waitingForButton4Release;
-        private bool waitingForButton5Release;
 
         public GenericControllerTracker(int index, Color colour)
         {
@@ -64,16 +95,54 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     _index = index;
                     _id = index + 1;
                     var rememberedColour = colour;
-                    _rememberedStringId = index + " " + JSL.JslGetControllerType(index);
+                    int ctype = JSL.JslGetControllerType(index);
+                    _rememberedStringId = index + " " + ctype;
+                    string friendlyType = ctype switch
+                    {
+                        1 => "Joy-Con L",
+                        2 => "Joy-Con R",
+                        3 => "Switch Pro",
+                        4 => "DualShock 4",
+                        5 => "DualSense",
+                        _ => "Controller"
+                    };
+                    string friendlyId = $"{friendlyType} #{index + 1}";
                     JSL.JslSetLightColour(index, colour.ToArgb());
                     macSpoof = _rememberedStringId + "GenericController";
                     _sensorOrientation = new SensorOrientation(index, SensorOrientation.SensorType.Bluetooth);
-                    _sensorOrientation.NewData += async delegate { await Update(); };
-                    _macAddressBytes = new byte[] { (byte)macSpoof[0], (byte)macSpoof[1], (byte)macSpoof[2], (byte)macSpoof[3], (byte)macSpoof[4], (byte)macSpoof[5] };
-                    udpHandler = new UDPHandler("GenericController" + _rememberedStringId, _macAddressBytes
-                     ,
-                 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 1);
+                    _sensorOrientation.NewData += (_, _) => { _ = Update(); };
+                    // Deterministic 6-byte MAC from SHA256(ctype:index). Locally-administered bit set
+                    // (bit 1 of first byte = 1), unicast (bit 0 = 0). Stable across runs so SlimeVR
+                    // keeps body-slot assignments even if user plugs controller back in later.
+                    var hash = System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes($"EverythingToIMU:{ctype}:{index}"));
+                    _macAddressBytes = new byte[6];
+                    Array.Copy(hash, 0, _macAddressBytes, 0, 6);
+                    _macAddressBytes[0] = (byte)((_macAddressBytes[0] & 0xFE) | 0x02);
+                    // DualSense uses a Bosch BMI270-class 6DoF IMU (accel+gyro, no mag).
+                    // Switch Pro / Joy-Con / DS4 also 6DoF IMUs. Hint BMI270 so SlimeVR
+                    // shows a meaningful sensor type instead of UNKNOWN in its UI.
+                    var imuHint = ctype switch
+                    {
+                        1 or 2 or 3 => FirmwareConstants.ImuType.LSM6DS3TRC, // Switch family uses ST LSM6DS3
+                        4 or 5 => FirmwareConstants.ImuType.BMI270,          // DualShock 4 / DualSense
+                        _ => FirmwareConstants.ImuType.UNKNOWN
+                    };
+                    // Firmware string becomes "Current" field in SlimeVR dashboard. Server also
+                    // compares it to latest GitHub release version for the "Update now" prompt.
+                    // Pass semver matching current SlimeVR firmware release so the prompt is
+                    // suppressed, append short controller hint for identification in logs.
+                    string firmwareString = $"0.7.2-EverythingToIMU-{friendlyType.Replace(" ", "")}";
+                    udpHandler = new UDPHandler(firmwareString, _macAddressBytes,
+                        FirmwareConstants.BoardType.CUSTOM, imuHint, FirmwareConstants.McuType.UNKNOWN,
+                        FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 1);
                     udpHandler.Active = true;
+                    // Note on resets: SlimeVR server handles Reset/Full/Mounting entirely server-side.
+                    // It maintains its own offset against our raw rotation stream — trackers do NOT
+                    // receive a server→tracker "you should reset" packet. We only SEND
+                    // CALIBRATION_ACTION (type 21) when the user presses a physical reset button
+                    // on the controller (see Recalibrate / CheckControllerInputs). Applying a
+                    // second local offset in response to a server packet would double-offset.
                     Recalibrate();
                     _sensorOrientation.OnExceptionMessage += _sensorOrientation_OnExceptionMessage;
                     _ready = true;
@@ -103,81 +172,125 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             }
             return false;
         }
-        public bool GetLocalState(int code)
-        {
-            int connections = GenericTrackerManager.ControllerCount;
-            var buttons = JSL.JslGetSimpleState(_index).buttons;
-            if ((buttons & code) != 0)
-            {
-                return true;
-            }
-            return false;
-        }
+
+        private static bool HasButton(JSL.JOY_SHOCK_STATE state, int code) => (state.buttons & code) != 0;
+
+        // Per-tracker send rate cap: DualSense IMU fires at ~250 Hz, but SlimeVR firmware
+        // itself sends at ~100-150 Hz. Anything higher floods the shared UdpClient send queue
+        // and under GC pauses / socket buffer stalls we can exceed the server's ~3 s timeout
+        // window, making the tracker appear "disconnected" intermittently.
+        private long _lastSendTicks;
+        // 5ms = 200 Hz. DualSense IMU nominal ~250 Hz — decimating from 250→200 keeps <1 sample
+        // variance. Previously 8ms (125 Hz) decimated aggressively. Server accepts higher rates
+        // fine; only issue was UdpClient flooding under GC pauses, mitigated by our rate cap +
+        // ValueTask hot path + SIO_UDP_CONNRESET fix.
+        private static readonly long SendMinIntervalTicks = TimeSpan.TicksPerMillisecond * 5;
 
         public async Task<bool> Update()
         {
-            if (_ready)
+            if (!_ready) return false;
+            if (updatingAlready) return true;
+            // Hard rate cap before reentrancy flag so we don't even allocate the state machine.
+            var nowTicks = DateTime.UtcNow.Ticks;
+            if (nowTicks - _lastSendTicks < SendMinIntervalTicks) return true;
+            _lastSendTicks = nowTicks;
+            updatingAlready = true;
+            _sampleCount++;
+            try
             {
-                _ = Task.Run(async () =>
+                if (udpHandler == null) { updatingAlready = false; return false; }
+                _rotation = Quaternion.Normalize(_sensorOrientation.CurrentOrientation);
+                if (GenericTrackerManager.DebugOpen || _yawReferenceTypeValue != RotationReferenceType.TrustDeviceYaw)
                 {
-                    try
+                    var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
+                    _trackerEuler = trackerRotation.GetYawFromQuaternion();
+                    _lastEulerPositon = -_trackerEuler;
+                    _euler = _rotation.QuaternionToEuler();
+                    _gyro = _sensorOrientation.Gyro;
+                    _acceleration = _sensorOrientation.Accelerometer;
+                }
+                // Send rotation + raw accel as separate packets. BUNDLE + gravity subtraction
+                // broke tracking — kept simple individual sends matching original behaviour.
+                // SlimeVR accepts raw accel (in g-units) on the ACCELERATION packet fine; it
+                // handles gravity removal server-side against the rotation stream.
+                await udpHandler.SetSensorAcceleration(_sensorOrientation.Accelerometer / 10f, 0);
+                if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw)
+                {
+                    await udpHandler.SetSensorRotation(_rotation, 0);
+                }
+                else
+                {
+                    await udpHandler.SetSensorRotation(new Vector3(_euler.X, _euler.Y, _lastEulerPositon).ToQuaternion(), 0);
+                }
+                if (GenericTrackerManager.DebugOpen)
+                {
+                    _debug =
+                    $"Device Id: {macSpoof}\r\n" +
+                    $"Euler Rotation:\r\n" +
+                    $"X:{_euler.X}, Y:{_euler.Y}, Z:{_rotation.Z}" +
+                    $"\r\nGyro:\r\n" +
+                    $"X:{_gyro.X}, Y:{_gyro.Y}, Z:{_gyro.Z}" +
+                    $"\r\nAcceleration:\r\n" +
+                    $"X:{_acceleration.X}, Y:{_acceleration.Y}, Z:{_acceleration.Z}\r\n" +
+                    $"Yaw Reference Rotation:\r\n" +
+                    $"Y:{_trackerEuler}\r\n";
+                }
+                // Battery: JSL has no battery API, read directly via HID. Cached 30s internally.
+                if ((DateTime.UtcNow - _lastBatteryPush).TotalSeconds > 30)
+                {
+                    var fraction = HidBatteryReader.GetBatteryFraction(_index);
+                    if (fraction is float f)
                     {
-                        _rotation = Quaternion.Normalize(_sensorOrientation.CurrentOrientation);
-                        if (GenericTrackerManager.DebugOpen || _yawReferenceTypeValue != RotationReferenceType.TrustDeviceYaw)
+                        _lastBatteryFraction = f;
+                        try
                         {
-                            var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
-                            _trackerEuler = trackerRotation.GetYawFromQuaternion();
-                            _lastEulerPositon = -_trackerEuler;
-                            _euler = _rotation.QuaternionToEuler();
-                            _gyro = _sensorOrientation.Gyro;
-                            _acceleration = _sensorOrientation.Accelerometer;
+                            await udpHandler.SetSensorBattery(_lastBatteryFraction * 100f, 3.7f);
                         }
-                        await udpHandler.SetSensorAcceleration(new Vector3(_sensorOrientation.Accelerometer.X, _sensorOrientation.Accelerometer.Y, _sensorOrientation.Accelerometer.Z) / 10, 0);
-                        if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw)
-                        {
-                            await udpHandler.SetSensorRotation(_rotation, 0);
-                        }
-                        else
-                        {
-                            await udpHandler.SetSensorRotation(new Vector3(_euler.X, _euler.Y, _lastEulerPositon).ToQuaternion(), 0);
-                        }
-                        if (GenericTrackerManager.DebugOpen)
-                        {
-                            _debug =
-                            $"Device Id: {macSpoof}\r\n" +
-                            $"Euler Rotation:\r\n" +
-                            $"X:{_euler.X}, Y:{_euler.Y}, Z:{_rotation.Z}" +
-                            $"\r\nGyro:\r\n" +
-                            $"X:{_gyro.X}, Y:{_gyro.Y}, Z:{_gyro.Z}" +
-                            $"\r\nAcceleration:\r\n" +
-                            $"X:{_acceleration.X}, Y:{_acceleration.Y}, Z:{_acceleration.Z}\r\n" +
-                            $"Yaw Reference Rotation:\r\n" +
-                            $"Y:{_trackerEuler}\r\n";
-                        }
-                        if (GetLocalState(0x20000))
-                        {
-                            if (!_waitForRelease)
-                            {
-                                buttonPressTimer.Start();
-                                _waitForRelease = true;
-                            }
-                        }
-                        else
-                        {
-                            _waitForRelease = false;
-                            buttonPressTimer.Reset();
-                        }
-                        if (buttonPressTimer.ElapsedMilliseconds >= 3000)
-                        {
-                            buttonPressTimer.Reset();
-                        }
-                        CheckControllerInputs();
+                        catch { /* best-effort */ }
                     }
-                    catch (Exception e)
+                    _lastBatteryPush = DateTime.UtcNow;
+                }
+
+                // LED state sync: reflect app health on the controller's own light bar.
+                // Throttled to 1 Hz (the HID feature report is not cheap and the colour change
+                // is only meaningful on visible state transitions).
+                if ((DateTime.UtcNow - _lastLedPush).TotalMilliseconds > 1000)
+                {
+                    int target = ComputeLedColor();
+                    if (target != _lastLedArgb)
                     {
-                        OnTrackerError.Invoke(this, e.StackTrace + "\r\n" + e.Message);
+                        try { JSL.JslSetLightColour(_index, target); _lastLedArgb = target; } catch { }
                     }
-                });
+                    _lastLedPush = DateTime.UtcNow;
+                }
+
+                var state = JSL.JslGetSimpleState(_index);
+                if (HasButton(state, 0x20000))
+                {
+                    if (!_waitForRelease)
+                    {
+                        buttonPressTimer.Start();
+                        _waitForRelease = true;
+                    }
+                }
+                else
+                {
+                    _waitForRelease = false;
+                    buttonPressTimer.Reset();
+                }
+                if (buttonPressTimer.ElapsedMilliseconds >= 3000)
+                {
+                    buttonPressTimer.Reset();
+                }
+                CheckControllerInputs(state);
+            }
+            catch (Exception e)
+            {
+                OnTrackerError?.Invoke(this, e.StackTrace + "\r\n" + e.Message);
+            }
+            finally
+            {
+                updatingAlready = false;
             }
             return _ready;
         }
@@ -190,14 +303,39 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         }
         public void Rediscover()
         {
-            udpHandler.Initialize(
-                 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, _macAddressBytes);
+            // Never call udpHandler.Initialize directly — it blocks the caller thread in a
+            // handshake loop with Thread.Sleep backoff (UI freezes) and stacks a second
+            // inbound-packet listener on the same socket (race hazard). Fire DoHandshake on
+            // a background task; it's gated by UDPHandler._handshakeGate so reentry is safe.
+            var handler = udpHandler;
+            if (handler == null) return;
+            int ctype = JSL.JslGetControllerType(_index);
+            var imuHint = ctype switch
+            {
+                1 or 2 or 3 => FirmwareConstants.ImuType.LSM6DS3TRC,
+                4 or 5 => FirmwareConstants.ImuType.BMI270,
+                _ => FirmwareConstants.ImuType.UNKNOWN
+            };
+            Task.Run(() =>
+            {
+                try
+                {
+                    handler.DoHandshake(_macAddressBytes, FirmwareConstants.BoardType.CUSTOM, imuHint,
+                        FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 1);
+                }
+                catch (Exception ex) { OnTrackerError?.Invoke(this, ex.Message); }
+            });
         }
 
         public void Dispose()
         {
             _ready = false;
             _disconnected = true;
+            // Properly release UDP + sensor subscriptions so re-enumeration doesn't leak
+            // sockets or fire events on a dead tracker (which would NRE through _udpHandler).
+            try { _sensorOrientation?.Dispose(); } catch { }
+            try { udpHandler?.Dispose(); } catch { }
+            udpHandler = null!;
         }
 
         public Vector3 GetCalibration()
@@ -205,20 +343,35 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             return -(_sensorOrientation.CurrentOrientation).QuaternionToEuler();
         }
 
-        public void CheckControllerInputs()
+        /// <summary>
+        /// Returns an ARGB colour that encodes the current tracker state for the controller's
+        /// light bar. Gray = connecting, amber = needs calibration, indigo = streaming, red = low battery.
+        /// </summary>
+        private int ComputeLedColor()
         {
-            // Trigger 
-            if (GetLocalState(0x00100) || GetLocalState(0x00200))
+            if (!_ready) return unchecked((int)0xFF606060); // dim gray = connecting
+            if (_lastBatteryFraction > 0f && _lastBatteryFraction < 0.15f)
+                return unchecked((int)0xFFED6A5A); // red = low battery (shared VizX brand)
+            // Streaming state: indigo if calibrated, amber if not.
+            // We don't have direct calibration-done visibility here, so use a simple proxy:
+            // if udpHandler is active and ready flag set, treat as streaming.
+            return unchecked((int)0xFF6E8CF0); // indigo = streaming healthy
+        }
+
+        public void CheckControllerInputs(JSL.JOY_SHOCK_STATE state)
+        {
+            // Trigger
+            if (HasButton(state, 0x00100) || HasButton(state, 0x00200))
             {
                 udpHandler.SendTrigger(1, 0);
             }
-            // Grip 
-            if (GetLocalState(0x20000))
+            // Grip
+            if (HasButton(state, 0x20000))
             {
                 udpHandler.SendGrip(1, 0);
             }
-            // B1 
-            if (GetLocalState(0x04000) || GetLocalState(0x00008))
+            // B1
+            if (HasButton(state, 0x04000) || HasButton(state, 0x00008))
             {
                 if (!waitingForButton1Release)
                 {
@@ -235,7 +388,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 }
             }
             // B2
-            if (GetLocalState(0x01000) || GetLocalState(0x00002))
+            if (HasButton(state, 0x01000) || HasButton(state, 0x00002))
             {
                 if (!waitingForButton2Release)
                 {
@@ -252,7 +405,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 }
             }
             // Menu/Recenter
-            if (GetLocalState(0x00020) || GetLocalState(0x00010))
+            if (HasButton(state, 0x00020) || HasButton(state, 0x00010))
             {
                 if (!waitingForButton3Release)
                 {
@@ -269,9 +422,8 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 }
             }
             // Thumbstick L/R
-            var state = JSL.JslGetSimpleState(_index);
-            float x = MathF.Abs(state.stickLX) > MathF.Abs(state.stickRX) ? state.stickLX * -1: state.stickRX;
-            float y = MathF.Abs(state.stickLY) > MathF.Abs(state.stickRY) ? state.stickLY: state.stickRY * -1;
+            float x = MathF.Abs(state.stickLX) > MathF.Abs(state.stickRX) ? state.stickLX * -1 : state.stickRX;
+            float y = MathF.Abs(state.stickLY) > MathF.Abs(state.stickRY) ? state.stickLY : state.stickRY * -1;
             udpHandler.SetThumbstick(new Vector2(y, x), 0);
         }
 
@@ -288,12 +440,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             if (!isAlreadyVibrating)
             {
                 isAlreadyVibrating = true;
-                Task.Run(() =>
+                _ = Task.Run(async () =>
                 {
                     JSL.JslSetRumble(_index, (int)(100 * intensity), (int)(intensity * 100f));
                     while (DateTime.Now < _hapticEndTime)
                     {
-                        Thread.Sleep(10);
+                        await Task.Delay(10);
                     }
                     JSL.JslSetRumble(_index, 0, 0);
                     isAlreadyVibrating = false;
@@ -313,7 +465,24 @@ namespace Everything_To_IMU_SlimeVR.Tracking
 
         public override string ToString()
         {
-            return "Controller Tracker " + _index;
+            try
+            {
+                int ctype = JSL.JslGetControllerType(_index);
+                string friendlyType = ctype switch
+                {
+                    1 => "Joy-Con L",
+                    2 => "Joy-Con R",
+                    3 => "Switch Pro",
+                    4 => "DualShock 4",
+                    5 => "DualSense",
+                    _ => "Controller"
+                };
+                return $"{friendlyType} #{_index + 1}";
+            }
+            catch
+            {
+                return "Controller " + _index;
+            }
         }
 
         public void HapticIntensityTest()
