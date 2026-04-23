@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-  <version>0.1.0.0</version>
-  <url>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/download/v0.1.0/Everything-To-IMU-SlimeVR-JoyCon2-test.zip</url>
+  <version>0.2.0.0</version>
+  <url>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/download/v0.2.0/Everything-To-IMU-SlimeVR-v0.2.0.zip</url>
   <changelog>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases</changelog>
   <mandatory>false</mandatory>
 </item>
