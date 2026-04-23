@@ -33,10 +33,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private static readonly byte[] CmdSensorInit  = { 0x0C, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00 };
         private static readonly byte[] CmdSensorStart = { 0x0C, 0x91, 0x01, 0x04, 0x00, 0x04, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00 };
 
-        // Scaling factors per german77 spec (joycon2cpp README).
-        private const float AccelScaleGPerUnit = 1f / 4096f;            // 1G = 4096 raw
-        private const float GyroScaleDpsPerUnit = 360f / 48000f;        // 360°/s = 48000 raw → 0.0075 dps/unit
-        private const float DegreesToRadians = MathF.PI / 180f;
+        // Scaling factors. Accel ±8G full scale, gyro ±2000 dps full scale, verified against
+        // SDL's SDL_hidapi_switch2.c which tests on real hardware:
+        //   accel_scale = g * 8 / INT16_MAX
+        //   gyro_coeff  = 34.8 rad/s at INT16_MAX (≈1994 dps, rounds to ±2000 dps range)
+        // ndeadly's earlier "48000 raw = 360°/s" note implies ±250 dps — wrong by ~8x, would
+        // make the tracker respond far too weakly to rotation. Use SDL's constants.
+        private const float AccelScaleMsPerUnit = 9.80665f * 8f / 32767f;     // m/s² per raw
+        private const float GyroScaleRadSecPerUnit = 34.8f / 32767f;          // rad/s per raw
         // AK09919 magnetometer: ~0.15 µT per LSB (datasheet typical). VQF normalises the mag
         // vector internally so the absolute scale only matters for sanity checks; using the
         // datasheet value keeps debug output in real-world units.
@@ -204,9 +208,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 var bytes = new byte[len];
                 reader.ReadBytes(bytes);
 
-                // IMU: int16 LE per german77 layout. Coordinate frame: pass the controller's native
-                // axes through the same (X, -Z, Y) rotation the existing JSL pipeline applies in
-                // SensorOrientation, so VQF sees the convention it was tuned against.
+                // IMU: int16 LE at the offsets documented by ndeadly. Motion block starts at
+                // 0x2A (timestamp), accel at 0x30, gyro at 0x36. Axis convention follows SDL's
+                // battle-tested SDL_hidapi_switch2.c: output = (raw_x, raw_z, -raw_y). This
+                // leaves the data in VQF's body frame (Z up), so we use the Identity VQF
+                // entry points that skip the JSL-specific (X, -Z, Y) remap.
                 short axRaw = BitConverter.ToInt16(bytes, 0x30);
                 short ayRaw = BitConverter.ToInt16(bytes, 0x32);
                 short azRaw = BitConverter.ToInt16(bytes, 0x34);
@@ -214,12 +220,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 short gyRaw = BitConverter.ToInt16(bytes, 0x38);
                 short gzRaw = BitConverter.ToInt16(bytes, 0x3A);
 
-                _accel = new Vector3(axRaw * AccelScaleGPerUnit * 9.80665f,
-                                      ayRaw * AccelScaleGPerUnit * 9.80665f,
-                                      azRaw * AccelScaleGPerUnit * 9.80665f);
-                _gyroRad = new Vector3(gxRaw * GyroScaleDpsPerUnit * DegreesToRadians,
-                                        gyRaw * GyroScaleDpsPerUnit * DegreesToRadians,
-                                        gzRaw * GyroScaleDpsPerUnit * DegreesToRadians);
+                _accel = new Vector3(axRaw * AccelScaleMsPerUnit,
+                                      azRaw * AccelScaleMsPerUnit,
+                                     -ayRaw * AccelScaleMsPerUnit);
+                _gyroRad = new Vector3(gxRaw * GyroScaleRadSecPerUnit,
+                                        gzRaw * GyroScaleRadSecPerUnit,
+                                       -gyRaw * GyroScaleRadSecPerUnit);
 
                 // Magnetometer at 0x19 (3 × int16 LE per ndeadly hid_reports.md). Feature bit 7
                 // is enabled by our 0xFF mask in CmdSensorInit/Start so the controller streams it.
@@ -231,9 +237,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     short mxRaw = BitConverter.ToInt16(bytes, 0x19);
                     short myRaw = BitConverter.ToInt16(bytes, 0x1B);
                     short mzRaw = BitConverter.ToInt16(bytes, 0x1D);
+                    // Mag chip (AK09919) is co-mounted with the IMU (ICM-42670-P) on the PCB,
+                    // so apply the same (raw_x, raw_z, -raw_y) remap SDL's IMU path uses.
+                    // Untested — if yaw locks to the wrong direction, flip signs here.
                     var magUt = new Vector3(mxRaw * MagScaleMicroTeslaPerUnit,
-                                             myRaw * MagScaleMicroTeslaPerUnit,
-                                             mzRaw * MagScaleMicroTeslaPerUnit);
+                                             mzRaw * MagScaleMicroTeslaPerUnit,
+                                            -myRaw * MagScaleMicroTeslaPerUnit);
                     float magMag = magUt.Length();
                     if (magMag > MagMinMagnitudeUt && magMag < MagMaxMagnitudeUt) {
                         _mag = magUt;
@@ -268,11 +277,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 }
 
                 if (_magValid) {
-                    _vqf.UpdateFast9D(_gyroRad, _accel, _mag);
+                    _vqf.UpdateIdentity9D(_gyroRad, _accel, _mag);
                     _rotation = _vqf.GetQuat9DFast();
                     _magUsedSamples++;
                 } else {
-                    _vqf.UpdateFast(_gyroRad, _accel);
+                    _vqf.UpdateIdentity(_gyroRad, _accel);
                     _rotation = _vqf.GetQuat6DFast();
                 }
 
@@ -306,6 +315,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     _euler = _rotation.QuaternionToEuler();
                 }
                 // Match GenericControllerTracker: send raw accel in g-units (server removes gravity).
+                // _accel is in m/s² from the SDL-style scale; convert back to G for the UDP packet.
                 await _udpHandler.SetSensorAcceleration(_accel / 9.80665f, 0);
                 if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw) {
                     await _udpHandler.SetSensorRotation(_rotation, 0);

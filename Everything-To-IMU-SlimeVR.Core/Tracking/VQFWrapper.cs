@@ -67,6 +67,22 @@ public class VQFWrapper : IDisposable {
         return new System.Numerics.Quaternion((float)_quatBuf[1], (float)_quatBuf[2], (float)_quatBuf[3], (float)_quatBuf[0]);
     }
 
+    // Zero-alloc identity hot-path. Use when the caller has already transformed inputs into
+    // the body frame VQF expects (Z up, gravity pointing +Z when stationary face-up). Avoids
+    // the (X, -Z, Y) remap that UpdateFast applies for the JSL pipeline.
+    public void UpdateIdentity(System.Numerics.Vector3 gyro, System.Numerics.Vector3 accel) {
+        _gyrBuf[0] = gyro.X; _gyrBuf[1] = gyro.Y; _gyrBuf[2] = gyro.Z;
+        _accBuf[0] = accel.X; _accBuf[1] = accel.Y; _accBuf[2] = accel.Z;
+        VQF_Update(handle, _gyrBuf, _accBuf, null);
+    }
+
+    public void UpdateIdentity9D(System.Numerics.Vector3 gyro, System.Numerics.Vector3 accel, System.Numerics.Vector3 mag) {
+        _gyrBuf[0] = gyro.X; _gyrBuf[1] = gyro.Y; _gyrBuf[2] = gyro.Z;
+        _accBuf[0] = accel.X; _accBuf[1] = accel.Y; _accBuf[2] = accel.Z;
+        _magBuf[0] = mag.X; _magBuf[1] = mag.Y; _magBuf[2] = mag.Z;
+        VQF_Update(handle, _gyrBuf, _accBuf, _magBuf);
+    }
+
     // 9DoF zero-alloc hot-path. Mag is mapped through the same (X, -Z, Y) convention as gyro/accel
     // so it lands in the same body frame VQF was tuned for. Mag input expected in µT (or any
     // unit consistent across calls — VQF normalises the vector internally).
