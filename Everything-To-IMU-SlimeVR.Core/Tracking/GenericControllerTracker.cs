@@ -303,28 +303,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         }
         public void Rediscover()
         {
-            // Never call udpHandler.Initialize directly — it blocks the caller thread in a
-            // handshake loop with Thread.Sleep backoff (UI freezes) and stacks a second
-            // inbound-packet listener on the same socket (race hazard). Fire DoHandshake on
-            // a background task; it's gated by UDPHandler._handshakeGate so reentry is safe.
-            var handler = udpHandler;
-            if (handler == null) return;
-            int ctype = JSL.JslGetControllerType(_index);
-            var imuHint = ctype switch
-            {
-                1 or 2 or 3 => FirmwareConstants.ImuType.LSM6DS3TRC,
-                4 or 5 => FirmwareConstants.ImuType.BMI270,
-                _ => FirmwareConstants.ImuType.UNKNOWN
-            };
-            Task.Run(() =>
-            {
-                try
-                {
-                    handler.DoHandshake(_macAddressBytes, FirmwareConstants.BoardType.CUSTOM, imuHint,
-                        FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 1);
-                }
-                catch (Exception ex) { OnTrackerError?.Invoke(this, ex.Message); }
-            });
+            // Forces the UDPHandler's internal watchdog loop to re-run the handshake.
+            try { udpHandler?.Rehandshake(); }
+            catch (Exception ex) { OnTrackerError?.Invoke(this, ex.Message); }
         }
 
         public void Dispose()

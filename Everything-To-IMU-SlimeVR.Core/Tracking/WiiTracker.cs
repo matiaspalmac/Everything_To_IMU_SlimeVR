@@ -233,7 +233,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 			}
 		}
 		public void Rediscover() {
-			udpHandler.Initialize(FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, _macAddressBytes);
+			udpHandler.Rehandshake();
 		}
 
 		public void Dispose() {

@@ -107,7 +107,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             _rotationCalibration = GetCalibration();
         }
         public void Rediscover() {
-            udpHandler.Initialize(FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, _macAddressBytes);
+            udpHandler.Rehandshake();
         }
 
         public void Dispose() {
