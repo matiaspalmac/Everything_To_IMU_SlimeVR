@@ -27,6 +27,15 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private Vector3 _gyro;
         private byte _battery;
         private VQFWrapper _vqf;
+        // Warm-up: suppress orientation emission until VQF has had ~200ms of stationary
+        // samples to converge. Prevents the "spin on connect" where downstream sees the
+        // first wildly-wrong quaternion before the accelerometer has tilted it down.
+        // Threshold ~8.6°/s (squared in rad/s) — generous, picks up clear hand motion
+        // without false-tripping on sensor noise.
+        private static readonly long WarmupTicksRequired = Stopwatch.Frequency / 5; // 200 ms
+        private const float WarmupGyroStationaryThresholdSq = 0.0225f; // (0.15 rad/s)^2
+        private long _warmupStableStartTicks = -1;
+        private bool _warmupComplete = false;
         private readonly GyroBiasCalibrator _biasCal = new GyroBiasCalibrator();
         public bool GyroBiasCalibrated => _biasCal.HasBias;
         public Vector3 GyroBias => _biasCal.Bias;
@@ -129,6 +138,15 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                         case SensorType.Bluetooth:
                             _vqf.UpdateFast(_gyro, _accelerometer);
                             currentOrientation = _vqf.GetQuat6DFast();
+                            if (!_warmupComplete) {
+                                long now = stopwatch.ElapsedTicks;
+                                if (_gyro.LengthSquared() > WarmupGyroStationaryThresholdSq || _warmupStableStartTicks < 0) {
+                                    _warmupStableStartTicks = now;
+                                } else if (now - _warmupStableStartTicks >= WarmupTicksRequired) {
+                                    _warmupComplete = true;
+                                }
+                                if (!_warmupComplete) break;
+                            }
                             NewData?.Invoke(this, EventArgs.Empty);
                             break;
                     }
