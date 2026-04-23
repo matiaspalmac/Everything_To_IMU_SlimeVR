@@ -12,6 +12,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         private static List<ThreeDsControllerTracker> _trackers3ds = new List<ThreeDsControllerTracker>();
         private static List<WiiTracker> _trackersWiimote = new List<WiiTracker>();
         private static List<WiiTracker> _trackersNunchuck = new List<WiiTracker>();
+        private static List<JoyCon2BleTracker> _trackersJoyCon2 = new List<JoyCon2BleTracker>();
         private static Dictionary<string, UDPHapticDevice> _trackersUdpHapticDevice = new Dictionary<string, UDPHapticDevice>();
         private static Dictionary<int, KeyValuePair<int, bool>> _trackerInfo = new Dictionary<int, KeyValuePair<int, bool>>();
         private static Dictionary<int, KeyValuePair<string, bool>> _trackerInfo3ds = new Dictionary<int, KeyValuePair<string, bool>>();
@@ -59,6 +60,22 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             };
             UDPHandler.Endpoint = "127.0.0.1";
             int handshakeDelay = _configuration.SwitchingSessions ? 10 : 100;
+            // Joy-Con 2 / Switch 2 Pro / NSO GC2 sit on a different transport (BLE GATT, not the
+            // Bluetooth Classic HID surface JSL drives). Hook the watcher once; spawned trackers
+            // flow into _allTrackers via the TrackerAdded event so the rest of the pipeline (UI,
+            // OSC, debug, OpenVR yaw reference) treats them like any other IBodyTracker.
+            JoyCon2Manager.TrackerAdded += (_, tracker) =>
+            {
+                lock (_trackersJoyCon2)
+                {
+                    _trackersJoyCon2.Add(tracker);
+                }
+                _allTrackers.Add(tracker);
+                tracker.OnTrackerError += NewTracker_OnTrackerError;
+            };
+            JoyCon2Manager.OnError += (_, msg) => OnTrackerError?.Invoke(this, $"JoyCon2: {msg}");
+            JoyCon2Manager.Start();
+
             Task.Run(async () =>
             {
                 foreach (var item in _configuration.TrackerConfigUdpHaptics)
@@ -213,6 +230,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                             tracker.Dispose();
                         }
                     }
+                    foreach (var dropped in JoyCon2Manager.ReapDisconnected())
+                    {
+                        lock (_trackersJoyCon2) { _trackersJoyCon2.Remove(dropped); }
+                        _allTrackers.Remove(dropped);
+                    }
                     Thread.Sleep(10000);
                 }
             });
@@ -331,6 +353,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         public Dictionary<int, KeyValuePair<string, bool>> TrackerInfo3ds { get => _trackerInfo3ds; set => _trackerInfo3ds = value; }
         public static List<WiiTracker> TrackersWiimote { get => _trackersWiimote; set => _trackersWiimote = value; }
         public static List<WiiTracker> TrackersNunchuck { get => _trackersNunchuck; set => _trackersNunchuck = value; }
+        public static List<JoyCon2BleTracker> TrackersJoyCon2 { get => _trackersJoyCon2; set => _trackersJoyCon2 = value; }
         public Dictionary<string, KeyValuePair<string, bool>> TrackerInfoWiimote { get => _trackerInfoWiimote; set => _trackerInfoWiimote = value; }
         public static List<IBodyTracker> AllTrackers { get => _allTrackers; set => _allTrackers = value; }
         public static Dictionary<string, UDPHapticDevice> TrackersUdpHapticDevice { get => _trackersUdpHapticDevice; set => _trackersUdpHapticDevice = value; }

@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
     <RootNamespace>Everything_To_IMU_SlimeVR</RootNamespace>
     <AssemblyName>Everything_To_IMU_SlimeVR.Core</AssemblyName>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
     <Platforms>AnyCPU;x64</Platforms>
     <!-- Legacy code predates nullable reference types; rather than annotate every field,
          silence the common unused-field / discard warnings that are not actionable here. -->
