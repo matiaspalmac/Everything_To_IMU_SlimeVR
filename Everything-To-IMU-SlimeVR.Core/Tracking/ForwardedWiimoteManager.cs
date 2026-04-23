@@ -51,7 +51,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                         _ = Task.Run(() => HandleClient(client));
                     } catch (Exception ex) {
                         Console.WriteLine($"Listener error: {ex.Message}");
-                        await Task.Delay(1000);
+                        await Task.Delay(TrackerTimings.CompanionRescanMs);
                     }
                 }
             } catch (Exception ex) {

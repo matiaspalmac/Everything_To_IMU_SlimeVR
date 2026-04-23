@@ -90,171 +90,147 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 lockInDetectedDevices = false;
             };
 
-            Task.Run(async () =>
+            Task.Run(EnumerateLoop);
+            Task.Run(CleanupLoop);
+        }
+
+        private const int EnumerationPollMs = 2000;
+        private const int CleanupPollMs = 2000;
+        private const int TrackerReadyPollMs = 100;
+
+        private async Task EnumerateLoop()
+        {
+            foreach (var item in _configuration.TrackerConfigUdpHaptics)
             {
-                foreach (var item in _configuration.TrackerConfigUdpHaptics)
-                {
-                    AddRemoteHapticDevice(item.Key, "");
-                }
-                _solarXR.Start();
-                while (!disposed)
-                {
-                    try
-                    {
-                        if (!lockInDetectedDevices)
-                        {
-                            _controllerCount = JSL.JslConnectDevices();
-                            // Loop through currently connected controllers.
-                            for (int i = 0; i < _controllerCount; i++)
-                            {
-                                // Track whether or not we've seen this controller before this session.
-                                if (!_trackerInfo.ContainsKey(i))
-                                {
-                                    _trackerInfo[i] = new KeyValuePair<int, bool>(_trackersBluetooth.Count, false);
-                                }
-
-                                // Get this controllers information.
-                                var info = _trackerInfo[i];
-
-                                // Have we dealt with setting up this controller tracker yet?
-                                if (!info.Value)
-                                {
-                                    // Set up the controller tracker.
-                                    var newTracker = new GenericControllerTracker(info.Key, colours[info.Key]);
-                                    while (!newTracker.Ready)
-                                    {
-                                        Thread.Sleep(100);
-                                    }
-                                    newTracker.OnTrackerError += NewTracker_OnTrackerError;
-                                    if (i > _configuration.TrackerConfigs.Count - 1)
-                                    {
-                                        _configuration.TrackerConfigs.Add(new TrackerConfig());
-                                    }
-                                    newTracker.YawReferenceTypeValue = _configuration.TrackerConfigs[i].YawReferenceTypeValue;
-                                    newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigs[i].YawReferenceTypeValue;
-                                    newTracker.HapticNodeBinding = _configuration.TrackerConfigs[i].HapticNodeBinding;
-                                    _trackersBluetooth.Add(newTracker);
-                                    _allTrackers.Add(newTracker);
-                                    _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, true);
-                                }
-                            }
-                            for (int i = 0; i < Forwarded3DSDataManager.DeviceMap.Count; i++)
-                            {
-                                string key = Forwarded3DSDataManager.DeviceMap.ElementAt(i).Key;
-                                // Track whether or not we've seen this controller before this session.
-                                if (!_trackerInfo3ds.ContainsKey(i))
-                                {
-                                    _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, false);
-                                }
-
-                                // Get this controllers information.
-                                var info = _trackerInfo3ds[i];
-
-                                // Have we dealt with setting up this controller tracker yet?
-                                if (!info.Value)
-                                {
-                                    // Set up the controller tracker.
-                                    var newTracker = new ThreeDsControllerTracker(key);
-                                    while (!newTracker.Ready)
-                                    {
-                                        Thread.Sleep(100);
-                                    }
-                                    newTracker.OnTrackerError += NewTracker_OnTrackerError;
-                                    if (i > _configuration.TrackerConfigs3ds.Count - 1)
-                                    {
-                                        _configuration.TrackerConfigs3ds.Add(new TrackerConfig());
-                                    }
-                                    newTracker.YawReferenceTypeValue = _configuration.TrackerConfigs3ds[i].YawReferenceTypeValue;
-                                    newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigs3ds[i].YawReferenceTypeValue;
-                                    _trackers3ds.Add(newTracker);
-                                    _allTrackers.Add(newTracker);
-                                    _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, true);
-                                }
-                            }
-                            for (int i = 0; i < ForwardedWiimoteManager.Wiimotes.Count; i++)
-                            {
-                                // Track whether or not we've seen this controller before this session.
-                                string key = ForwardedWiimoteManager.Wiimotes.ElementAt(i).Key;
-                                if (!_trackerInfoWiimote.ContainsKey(key))
-                                {
-                                    _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, false);
-                                }
-
-                                // Get this controllers information.
-                                var info = _trackerInfoWiimote[key];
-
-                                // Have we dealt with setting up this controller tracker yet?
-                                if (!info.Value)
-                                {
-                                    // Set up the controller tracker.
-                                    var newTracker = new WiiTracker(info.Key);
-                                    while (!newTracker.Ready)
-                                    {
-                                        Thread.Sleep(100);
-                                    }
-                                    newTracker.OnTrackerError += NewTracker_OnTrackerError;
-                                    if (!_configuration.TrackerConfigWiimote.ContainsKey(key))
-                                    {
-                                        _configuration.TrackerConfigWiimote.Add(key, new TrackerConfig());
-                                    }
-                                    newTracker.YawReferenceTypeValue = _configuration.TrackerConfigWiimote[key].YawReferenceTypeValue;
-                                    newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigWiimote[key].ExtensionYawReferenceTypeValue;
-                                    newTracker.HapticNodeBinding = _configuration.TrackerConfigWiimote[key].HapticNodeBinding;
-                                    _trackersWiimote.Add(newTracker);
-                                    _allTrackers.Add(newTracker);
-                                    _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, true);
-                                }
-                            }
-                        }
-                        // 2 s instead of the original 10 s. The HidSharp Changed event above
-                        // breaks us out early on most plug/unplug, so this is just the slow-path
-                        // fallback for drivers that don't surface change notifications.
-                        Thread.Sleep(2000);
-                    } catch (Exception e)
-                    {
-                        OnTrackerError?.Invoke(this, e.Message);
-                    }
-                }
-            });
-            Task.Run(async () =>
+                AddRemoteHapticDevice(item.Key, "");
+            }
+            _solarXR.Start();
+            while (!disposed)
             {
-                while (true)
+                try
                 {
-                    // Loop through all the controller based trackers.
-                    for (int i = 0; i < _trackersBluetooth.Count; i++)
+                    if (!lockInDetectedDevices)
                     {
-                        var tracker = _trackersBluetooth[i];
-                        // Remove tracker if its been disconnected.
-                        if (tracker.Disconnected)
-                        {
-                            var info = _trackerInfo[i];
-                            _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, false);
-                            _trackersBluetooth.RemoveAt(i);
-                            i = 0;
-                            tracker.Dispose();
-                        }
+                        EnumerateJslControllers();
+                        Enumerate3dsControllers();
+                        EnumerateWiimotes();
                     }
-                    for (int i = 0; i < _trackers3ds.Count; i++)
-                    {
-                        var tracker = _trackers3ds[i];
-                        // Remove tracker if its been disconnected.
-                        if (tracker.Disconnected)
-                        {
-                            var info = _trackerInfo3ds[i];
-                            _trackerInfo3ds[i] = new KeyValuePair<string, bool>(info.Key, false);
-                            _trackers3ds.RemoveAt(i);
-                            i = 0;
-                            tracker.Dispose();
-                        }
-                    }
-                    foreach (var dropped in JoyCon2Manager.ReapDisconnected())
-                    {
-                        lock (_trackersJoyCon2) { _trackersJoyCon2.Remove(dropped); }
-                        _allTrackers.Remove(dropped);
-                    }
-                    Thread.Sleep(2000);
+                    // 2s fallback — HidSharp Changed event handles most plug/unplug earlier.
+                    Thread.Sleep(EnumerationPollMs);
                 }
-            });
+                catch (Exception e)
+                {
+                    OnTrackerError?.Invoke(this, e.Message);
+                }
+            }
+        }
+
+        private void EnumerateJslControllers()
+        {
+            _controllerCount = JSL.JslConnectDevices();
+            for (int i = 0; i < _controllerCount; i++)
+            {
+                if (!_trackerInfo.ContainsKey(i))
+                    _trackerInfo[i] = new KeyValuePair<int, bool>(_trackersBluetooth.Count, false);
+                var info = _trackerInfo[i];
+                if (info.Value) continue;
+
+                var newTracker = new GenericControllerTracker(info.Key, colours[info.Key]);
+                while (!newTracker.Ready) Thread.Sleep(TrackerReadyPollMs);
+                newTracker.OnTrackerError += NewTracker_OnTrackerError;
+                if (i > _configuration.TrackerConfigs.Count - 1)
+                    _configuration.TrackerConfigs.Add(new TrackerConfig());
+                newTracker.YawReferenceTypeValue = _configuration.TrackerConfigs[i].YawReferenceTypeValue;
+                newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigs[i].YawReferenceTypeValue;
+                newTracker.HapticNodeBinding = _configuration.TrackerConfigs[i].HapticNodeBinding;
+                _trackersBluetooth.Add(newTracker);
+                _allTrackers.Add(newTracker);
+                _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, true);
+            }
+        }
+
+        private void Enumerate3dsControllers()
+        {
+            for (int i = 0; i < Forwarded3DSDataManager.DeviceMap.Count; i++)
+            {
+                string key = Forwarded3DSDataManager.DeviceMap.ElementAt(i).Key;
+                if (!_trackerInfo3ds.ContainsKey(i))
+                    _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, false);
+                var info = _trackerInfo3ds[i];
+                if (info.Value) continue;
+
+                var newTracker = new ThreeDsControllerTracker(key);
+                while (!newTracker.Ready) Thread.Sleep(TrackerReadyPollMs);
+                newTracker.OnTrackerError += NewTracker_OnTrackerError;
+                if (i > _configuration.TrackerConfigs3ds.Count - 1)
+                    _configuration.TrackerConfigs3ds.Add(new TrackerConfig());
+                newTracker.YawReferenceTypeValue = _configuration.TrackerConfigs3ds[i].YawReferenceTypeValue;
+                newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigs3ds[i].YawReferenceTypeValue;
+                _trackers3ds.Add(newTracker);
+                _allTrackers.Add(newTracker);
+                _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, true);
+            }
+        }
+
+        private void EnumerateWiimotes()
+        {
+            for (int i = 0; i < ForwardedWiimoteManager.Wiimotes.Count; i++)
+            {
+                string key = ForwardedWiimoteManager.Wiimotes.ElementAt(i).Key;
+                if (!_trackerInfoWiimote.ContainsKey(key))
+                    _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, false);
+                var info = _trackerInfoWiimote[key];
+                if (info.Value) continue;
+
+                var newTracker = new WiiTracker(info.Key);
+                while (!newTracker.Ready) Thread.Sleep(TrackerReadyPollMs);
+                newTracker.OnTrackerError += NewTracker_OnTrackerError;
+                if (!_configuration.TrackerConfigWiimote.ContainsKey(key))
+                    _configuration.TrackerConfigWiimote.Add(key, new TrackerConfig());
+                newTracker.YawReferenceTypeValue = _configuration.TrackerConfigWiimote[key].YawReferenceTypeValue;
+                newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigWiimote[key].ExtensionYawReferenceTypeValue;
+                newTracker.HapticNodeBinding = _configuration.TrackerConfigWiimote[key].HapticNodeBinding;
+                _trackersWiimote.Add(newTracker);
+                _allTrackers.Add(newTracker);
+                _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, true);
+            }
+        }
+
+        private async Task CleanupLoop()
+        {
+            while (true)
+            {
+                for (int i = 0; i < _trackersBluetooth.Count; i++)
+                {
+                    var tracker = _trackersBluetooth[i];
+                    if (tracker.Disconnected)
+                    {
+                        var info = _trackerInfo[i];
+                        _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, false);
+                        _trackersBluetooth.RemoveAt(i);
+                        i = 0;
+                        tracker.Dispose();
+                    }
+                }
+                for (int i = 0; i < _trackers3ds.Count; i++)
+                {
+                    var tracker = _trackers3ds[i];
+                    if (tracker.Disconnected)
+                    {
+                        var info = _trackerInfo3ds[i];
+                        _trackerInfo3ds[i] = new KeyValuePair<string, bool>(info.Key, false);
+                        _trackers3ds.RemoveAt(i);
+                        i = 0;
+                        tracker.Dispose();
+                    }
+                }
+                foreach (var dropped in JoyCon2Manager.ReapDisconnected())
+                {
+                    lock (_trackersJoyCon2) { _trackersJoyCon2.Remove(dropped); }
+                    _allTrackers.Remove(dropped);
+                }
+                Thread.Sleep(CleanupPollMs);
+            }
         }
 
         private void NewTracker_OnTrackerError(object? sender, string e)
