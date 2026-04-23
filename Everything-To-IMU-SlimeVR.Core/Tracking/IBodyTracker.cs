@@ -21,6 +21,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         long SendFailures => 0;
         bool ServerReachable => true;
 
+        // Diagnostic metrics — trackers override where meaningful. Defaults keep UI code branch-free.
+        double Hz => 0;
+        double ImuSampleRateHz => 0;
+        float JitterDegrees => 0f;
+        float BatteryLevel => 0f;
+        int LastLedArgb => 0;
+        bool Disconnected => false;
+        int Index => 0;
+        Vector3 Acceleration => Vector3.Zero;
+
         void Rediscover();
         Vector3 GetCalibration();
 

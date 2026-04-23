@@ -73,97 +73,43 @@ public partial class TrackerRow : ObservableObject
 
     private void RefreshImuMetrics()
     {
-        try
-        {
-            var rateProp = Tracker.GetType().GetProperty("ImuSampleRateHz");
-            if (rateProp?.PropertyType == typeof(double) && rateProp.GetValue(Tracker) is double r && r > 0)
-                ImuRateText = $"{r:F0} Hz";
-            else
-                ImuRateText = "—";
-
-            var jitterProp = Tracker.GetType().GetProperty("JitterDegrees");
-            if (jitterProp?.PropertyType == typeof(float) && jitterProp.GetValue(Tracker) is float j && j > 0)
-                JitterText = $"{j:F2}°";
-            else
-                JitterText = "—";
-        }
-        catch
-        {
-            ImuRateText = "—";
-            JitterText = "—";
-        }
+        double r = Tracker.ImuSampleRateHz;
+        ImuRateText = r > 0 ? $"{r:F0} Hz" : "—";
+        float j = Tracker.JitterDegrees;
+        JitterText = j > 0 ? $"{j:F2}°" : "—";
     }
 
     private void RefreshLedColor()
     {
-        try
-        {
-            var prop = Tracker.GetType().GetProperty("LastLedArgb");
-            if (prop?.PropertyType == typeof(int) && prop.GetValue(Tracker) is int argb)
-            {
-                byte a = (byte)((argb >> 24) & 0xFF);
-                byte r = (byte)((argb >> 16) & 0xFF);
-                byte g = (byte)((argb >> 8) & 0xFF);
-                byte b = (byte)(argb & 0xFF);
-                LedColorBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a == 0 ? (byte)255 : a, r, g, b));
-                HasLedColor = true;
-            }
-            else
-            {
-                HasLedColor = false;
-            }
-        }
-        catch { HasLedColor = false; }
+        int argb = Tracker.LastLedArgb;
+        if (argb == 0) { HasLedColor = false; return; }
+        byte a = (byte)((argb >> 24) & 0xFF);
+        byte r = (byte)((argb >> 16) & 0xFF);
+        byte g = (byte)((argb >> 8) & 0xFF);
+        byte b = (byte)(argb & 0xFF);
+        LedColorBrush = new SolidColorBrush(System.Windows.Media.Color.FromArgb(a == 0 ? (byte)255 : a, r, g, b));
+        HasLedColor = true;
     }
 
     private void RefreshHz()
     {
-        try
-        {
-            var prop = Tracker.GetType().GetProperty("Hz");
-            if (prop?.PropertyType == typeof(double) && prop.GetValue(Tracker) is double hz && hz > 0)
-            {
-                HzText = $"{hz:F0} Hz";
-            }
-            else
-            {
-                HzText = "—";
-            }
-        }
-        catch
-        {
-            HzText = "—";
-        }
+        double hz = Tracker.Hz;
+        HzText = hz > 0 ? $"{hz:F0} Hz" : "—";
     }
 
     private void RefreshBattery()
     {
-        try
-        {
-            var prop = Tracker.GetType().GetProperty("BatteryLevel");
-            if (prop?.PropertyType == typeof(float) && prop.GetValue(Tracker) is float f && f > 0f)
-            {
-                HasBattery = true;
-                int pct = (int)Math.Round(Math.Clamp(f, 0f, 1f) * 100);
-                BatteryText = $"{pct}%";
-                var res = System.Windows.Application.Current.Resources;
-                BatteryBrush = pct <= 15
-                    ? (Brush)(res["ErrorBrush"] ?? Brushes.Red)
-                    : pct <= 35
-                        ? (Brush)(res["WarningBrush"] ?? Brushes.Orange)
-                        : (Brush)(res["SuccessBrush"] ?? Brushes.Green);
-            }
-            else
-            {
-                HasBattery = false;
-                BatteryText = "—";
-            }
-        }
-        catch
-        {
-            HasBattery = false;
-            BatteryText = "—";
-        }
+        float f = Tracker.BatteryLevel;
+        if (f <= 0f) { HasBattery = false; BatteryText = "—"; return; }
+        HasBattery = true;
+        int pct = (int)Math.Round(Math.Clamp(f, 0f, 1f) * 100);
+        BatteryText = $"{pct}%";
+        var res = System.Windows.Application.Current.Resources;
+        BatteryBrush = pct <= 15
+            ? (Brush)(res["ErrorBrush"] ?? Brushes.Red)
+            : pct <= 35
+                ? (Brush)(res["WarningBrush"] ?? Brushes.Orange)
+                : (Brush)(res["SuccessBrush"] ?? Brushes.Green);
     }
 
     // Sample rate floor below which a tracker is considered "Laggy". 60 Hz is the practical
@@ -179,25 +125,11 @@ public partial class TrackerRow : ObservableObject
         var amber = (Brush)(res["WarningBrush"] ?? Brushes.Orange);
         var red = (Brush)(res["ErrorBrush"] ?? Brushes.Red);
 
-        // Disconnected check via reflection — only some trackers expose the property.
-        try
-        {
-            var disc = Tracker.GetType().GetProperty("Disconnected");
-            if (disc?.GetValue(Tracker) is bool d && d) return ("Disconnected", red);
-        }
-        catch { }
-
+        if (Tracker.Disconnected) return ("Disconnected", red);
         if (!Tracker.Ready) return ("Connecting", gray);
         if (!SupportsImu) return ("Haptic only", green);
 
-        double hz = 0;
-        try
-        {
-            var prop = Tracker.GetType().GetProperty("Hz");
-            if (prop?.PropertyType == typeof(double) && prop.GetValue(Tracker) is double v) hz = v;
-        }
-        catch { }
-
+        double hz = Tracker.Hz;
         if (hz <= 0) return ("No IMU", amber);
         if (hz < HealthyHzThreshold) return ($"Laggy ({hz:F0} Hz)", amber);
         return ("Healthy", green);
