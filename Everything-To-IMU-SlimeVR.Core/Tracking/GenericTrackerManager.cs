@@ -7,6 +7,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking
 {
     public class GenericTrackerManager
     {
+        // Shared registry guarded by _registryLock. All mutations (Add/Remove/RemoveAt/[]=)
+        // must take the lock; UI readers take the lock to snapshot via ToArray() before
+        // enumerating. Prior version let multiple discovery/cleanup/HidSharp threads mutate
+        // these List<T> concurrently → occasional InvalidOperationException in UI refresh
+        // and lost trackers on rapid plug/unplug.
+        private static readonly object _registryLock = new object();
         private static List<IBodyTracker> _allTrackers = new List<IBodyTracker>();
         private static List<GenericControllerTracker> _trackersBluetooth = new List<GenericControllerTracker>();
         private static List<ThreeDsControllerTracker> _trackers3ds = new List<ThreeDsControllerTracker>();
@@ -66,11 +72,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             // OSC, debug, OpenVR yaw reference) treats them like any other IBodyTracker.
             JoyCon2Manager.TrackerAdded += (_, tracker) =>
             {
-                lock (_trackersJoyCon2)
+                lock (_registryLock)
                 {
                     _trackersJoyCon2.Add(tracker);
+                    _allTrackers.Add(tracker);
                 }
-                _allTrackers.Add(tracker);
                 tracker.OnTrackerError += NewTracker_OnTrackerError;
             };
             JoyCon2Manager.OnError += (_, msg) => OnTrackerError?.Invoke(this, $"JoyCon2: {msg}");
@@ -130,9 +136,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             _controllerCount = JSL.JslConnectDevices();
             for (int i = 0; i < _controllerCount; i++)
             {
-                if (!_trackerInfo.ContainsKey(i))
-                    _trackerInfo[i] = new KeyValuePair<int, bool>(_trackersBluetooth.Count, false);
-                var info = _trackerInfo[i];
+                KeyValuePair<int, bool> info;
+                lock (_registryLock)
+                {
+                    if (!_trackerInfo.ContainsKey(i))
+                        _trackerInfo[i] = new KeyValuePair<int, bool>(_trackersBluetooth.Count, false);
+                    info = _trackerInfo[i];
+                }
                 if (info.Value) continue;
 
                 var newTracker = new GenericControllerTracker(info.Key, colours[info.Key]);
@@ -143,9 +153,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 newTracker.YawReferenceTypeValue = _configuration.TrackerConfigs[i].YawReferenceTypeValue;
                 newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigs[i].YawReferenceTypeValue;
                 newTracker.HapticNodeBinding = _configuration.TrackerConfigs[i].HapticNodeBinding;
-                _trackersBluetooth.Add(newTracker);
-                _allTrackers.Add(newTracker);
-                _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, true);
+                lock (_registryLock)
+                {
+                    _trackersBluetooth.Add(newTracker);
+                    _allTrackers.Add(newTracker);
+                    _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, true);
+                }
             }
         }
 
@@ -154,9 +167,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             for (int i = 0; i < Forwarded3DSDataManager.DeviceMap.Count; i++)
             {
                 string key = Forwarded3DSDataManager.DeviceMap.ElementAt(i).Key;
-                if (!_trackerInfo3ds.ContainsKey(i))
-                    _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, false);
-                var info = _trackerInfo3ds[i];
+                KeyValuePair<string, bool> info;
+                lock (_registryLock)
+                {
+                    if (!_trackerInfo3ds.ContainsKey(i))
+                        _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, false);
+                    info = _trackerInfo3ds[i];
+                }
                 if (info.Value) continue;
 
                 var newTracker = new ThreeDsControllerTracker(key);
@@ -166,9 +183,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     _configuration.TrackerConfigs3ds.Add(new TrackerConfig());
                 newTracker.YawReferenceTypeValue = _configuration.TrackerConfigs3ds[i].YawReferenceTypeValue;
                 newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigs3ds[i].YawReferenceTypeValue;
-                _trackers3ds.Add(newTracker);
-                _allTrackers.Add(newTracker);
-                _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, true);
+                lock (_registryLock)
+                {
+                    _trackers3ds.Add(newTracker);
+                    _allTrackers.Add(newTracker);
+                    _trackerInfo3ds[i] = new KeyValuePair<string, bool>(key, true);
+                }
             }
         }
 
@@ -177,9 +197,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             for (int i = 0; i < ForwardedWiimoteManager.Wiimotes.Count; i++)
             {
                 string key = ForwardedWiimoteManager.Wiimotes.ElementAt(i).Key;
-                if (!_trackerInfoWiimote.ContainsKey(key))
-                    _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, false);
-                var info = _trackerInfoWiimote[key];
+                KeyValuePair<string, bool> info;
+                lock (_registryLock)
+                {
+                    if (!_trackerInfoWiimote.ContainsKey(key))
+                        _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, false);
+                    info = _trackerInfoWiimote[key];
+                }
                 if (info.Value) continue;
 
                 var newTracker = new WiiTracker(info.Key);
@@ -190,9 +214,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 newTracker.YawReferenceTypeValue = _configuration.TrackerConfigWiimote[key].YawReferenceTypeValue;
                 newTracker.ExtensionYawReferenceTypeValue = _configuration.TrackerConfigWiimote[key].ExtensionYawReferenceTypeValue;
                 newTracker.HapticNodeBinding = _configuration.TrackerConfigWiimote[key].HapticNodeBinding;
-                _trackersWiimote.Add(newTracker);
-                _allTrackers.Add(newTracker);
-                _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, true);
+                lock (_registryLock)
+                {
+                    _trackersWiimote.Add(newTracker);
+                    _allTrackers.Add(newTracker);
+                    _trackerInfoWiimote[key] = new KeyValuePair<string, bool>(key, true);
+                }
             }
         }
 
@@ -200,34 +227,45 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         {
             while (true)
             {
-                for (int i = 0; i < _trackersBluetooth.Count; i++)
+                // Collect disposals outside the lock to avoid calling Dispose while holding
+                // the registry lock (tracker dispose can re-enter event handlers).
+                var toDispose = new List<IDisposable>();
+                lock (_registryLock)
                 {
-                    var tracker = _trackersBluetooth[i];
-                    if (tracker.Disconnected)
+                    for (int i = _trackersBluetooth.Count - 1; i >= 0; i--)
                     {
-                        var info = _trackerInfo[i];
-                        _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, false);
-                        _trackersBluetooth.RemoveAt(i);
-                        i = 0;
-                        tracker.Dispose();
+                        var tracker = _trackersBluetooth[i];
+                        if (tracker.Disconnected)
+                        {
+                            var info = _trackerInfo[i];
+                            _trackerInfo[i] = new KeyValuePair<int, bool>(info.Key, false);
+                            _trackersBluetooth.RemoveAt(i);
+                            _allTrackers.Remove(tracker);
+                            toDispose.Add(tracker);
+                        }
+                    }
+                    for (int i = _trackers3ds.Count - 1; i >= 0; i--)
+                    {
+                        var tracker = _trackers3ds[i];
+                        if (tracker.Disconnected)
+                        {
+                            var info = _trackerInfo3ds[i];
+                            _trackerInfo3ds[i] = new KeyValuePair<string, bool>(info.Key, false);
+                            _trackers3ds.RemoveAt(i);
+                            _allTrackers.Remove(tracker);
+                            toDispose.Add(tracker);
+                        }
                     }
                 }
-                for (int i = 0; i < _trackers3ds.Count; i++)
-                {
-                    var tracker = _trackers3ds[i];
-                    if (tracker.Disconnected)
-                    {
-                        var info = _trackerInfo3ds[i];
-                        _trackerInfo3ds[i] = new KeyValuePair<string, bool>(info.Key, false);
-                        _trackers3ds.RemoveAt(i);
-                        i = 0;
-                        tracker.Dispose();
-                    }
-                }
+                foreach (var d in toDispose) { try { d.Dispose(); } catch { } }
+
                 foreach (var dropped in JoyCon2Manager.ReapDisconnected())
                 {
-                    lock (_trackersJoyCon2) { _trackersJoyCon2.Remove(dropped); }
-                    _allTrackers.Remove(dropped);
+                    lock (_registryLock)
+                    {
+                        _trackersJoyCon2.Remove(dropped);
+                        _allTrackers.Remove(dropped);
+                    }
                 }
                 Thread.Sleep(CleanupPollMs);
             }
@@ -244,19 +282,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         }
         public void AddRemoteHapticDevice(string ip, string alias)
         {
-            // Track whether or not we've seen this controller before this session.
-            if (!_trackerInfoUdpHapticDevice.ContainsKey(ip))
+            KeyValuePair<int, bool> info;
+            lock (_registryLock)
             {
-                _trackerInfoUdpHapticDevice[ip] = new KeyValuePair<int, bool>(_trackerInfoUdpHapticDevice.Count, false);
+                if (!_trackerInfoUdpHapticDevice.ContainsKey(ip))
+                    _trackerInfoUdpHapticDevice[ip] = new KeyValuePair<int, bool>(_trackerInfoUdpHapticDevice.Count, false);
+                info = _trackerInfoUdpHapticDevice[ip];
             }
 
-            // Get this controllers information.
-            var info = _trackerInfoUdpHapticDevice[ip];
-
-            // Have we dealt with setting up this controller tracker yet?
             if (!info.Value)
             {
-                // Set up the controller tracker.
                 var newTracker = new UDPHapticDevice(ip, alias);
                 if (!_configuration.TrackerConfigUdpHaptics.ContainsKey(ip))
                 {
@@ -264,9 +299,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 }
                 newTracker.YawReferenceTypeValue = _configuration.TrackerConfigUdpHaptics[ip].YawReferenceTypeValue;
                 newTracker.HapticNodeBinding = _configuration.TrackerConfigUdpHaptics[ip].HapticNodeBinding;
-                _trackersUdpHapticDevice[ip] = newTracker;
-                _allTrackers.Add(newTracker);
-                _trackerInfoUdpHapticDevice[ip] = new KeyValuePair<int, bool>(info.Key, true);
+                lock (_registryLock)
+                {
+                    _trackersUdpHapticDevice[ip] = newTracker;
+                    _allTrackers.Add(newTracker);
+                    _trackerInfoUdpHapticDevice[ip] = new KeyValuePair<int, bool>(info.Key, true);
+                }
             } else
             {
                 try
@@ -338,7 +376,31 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             }
         }
 
+        // NOTE: readers should snapshot via ToArray() before enumerating. Returning the live
+        // list is kept for backward compat with existing callers; internal hot paths prefer
+        // the Snapshot* helpers below which take the lock once.
         public static List<GenericControllerTracker> TrackersBluetooth { get => _trackersBluetooth; set => _trackersBluetooth = value; }
+
+        public static IReadOnlyList<IBodyTracker> SnapshotAllTrackers()
+        {
+            lock (_registryLock) return _allTrackers.ToArray();
+        }
+        public static IReadOnlyList<GenericControllerTracker> SnapshotBluetooth()
+        {
+            lock (_registryLock) return _trackersBluetooth.ToArray();
+        }
+        public static IReadOnlyList<ThreeDsControllerTracker> Snapshot3ds()
+        {
+            lock (_registryLock) return _trackers3ds.ToArray();
+        }
+        public static IReadOnlyList<WiiTracker> SnapshotWiimote()
+        {
+            lock (_registryLock) return _trackersWiimote.ToArray();
+        }
+        public static IReadOnlyList<JoyCon2BleTracker> SnapshotJoyCon2()
+        {
+            lock (_registryLock) return _trackersJoyCon2.ToArray();
+        }
         public static int ControllerCount { get => _controllerCount; set => _controllerCount = value; }
         public int PollingRate { get => pollingRate; set => pollingRate = value; }
         public static bool DebugOpen { get; set; }
