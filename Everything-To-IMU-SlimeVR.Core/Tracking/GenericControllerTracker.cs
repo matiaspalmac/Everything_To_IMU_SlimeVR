@@ -144,6 +144,20 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     };
                     string friendlyId = $"{friendlyType} #{index + 1}";
                     JSL.JslSetLightColour(index, colour.ToArgb());
+                    // Player LED = tracker slot. Nintendo family (Joy-Con / Pro) maps
+                    // JslSetPlayerNumber to subcmd 0x30 bit mask (bits 0..3 = LEDs 1..4).
+                    // Sony DualSense has 5 LEDs under the touchpad — drive via
+                    // DualSenseOutput (full output report needed; JSL does not cover that).
+                    try { JSL.JslSetPlayerNumber(index, (index + 1) & 0x0F); } catch { }
+                    if (ctype == 5) // DualSense family
+                    {
+                        try
+                        {
+                            byte mask = DualSenseOutput.PlayerLedMaskForSlot(index + 1);
+                            DualSenseOutput.ApplyLedState(index, mask, micLedOn: true);
+                        }
+                        catch { }
+                    }
                     macSpoof = _rememberedStringId + "GenericController";
                     _sensorOrientation = new SensorOrientation(index, SensorOrientation.SensorType.Bluetooth);
                     _sensorOrientation.NewData += (_, _) => { _ = Update(); };
