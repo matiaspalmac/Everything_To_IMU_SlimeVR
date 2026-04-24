@@ -41,14 +41,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             0x0A, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00, preset, 0x00, 0x00, 0x00
         };
 
-        // Scaling factors. Accel ±8G full scale, gyro ±2000 dps full scale, verified against
-        // SDL's SDL_hidapi_switch2.c which tests on real hardware:
-        //   accel_scale = g * 8 / INT16_MAX
-        //   gyro_coeff  = 34.8 rad/s at INT16_MAX (≈1994 dps, rounds to ±2000 dps range)
-        // ndeadly's earlier "48000 raw = 360°/s" note implies ±250 dps — wrong by ~8x, would
-        // make the tracker respond far too weakly to rotation. Use SDL's constants.
-        private const float AccelScaleMsPerUnit = 9.80665f * 8f / 32767f;     // m/s² per raw
-        private const float GyroScaleRadSecPerUnit = 34.8f / 32767f;          // rad/s per raw
+        // Scaling factors. Verified against Joy2Win (Python ref impl, BLE captures):
+        //   Accel: 4096 raw = 1G → ±8G at int16 range.
+        //   Gyro : 6048 raw = 360°/s → ±1950 dps at int16 (SDL's ±2000 dps is correct).
+        // Memory note "48000 raw = 360°/s" was wrong; Joy2Win empirically shows 6048.
+        private const float AccelScaleMsPerUnit = 9.80665f / 4096f;                     // m/s² per raw
+        private const float GyroScaleRadSecPerUnit = (float)(Math.PI / 180.0 * 360.0 / 6048.0); // rad/s per raw (360°/s per 6048 units)
         // AK09919 magnetometer: ~0.15 µT per LSB (datasheet typical). VQF normalises the mag
         // vector internally so the absolute scale only matters for sanity checks; using the
         // datasheet value keeps debug output in real-world units.
@@ -56,8 +54,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         // Earth field is ~25-65 µT. Reject readings outside a permissive window — all-zero
         // bytes (mag disabled / cable interference / first-packet artifacts) and absurd values
         // (saturated near a strong magnet) just fall back to the 6DoF path for that frame.
+        // Post-bias validity window. Earth field sits in 25-65 µT, so 10-120 is a loose
+        // envelope that accepts local anomalies (steel desks, speaker magnets) without
+        // letting through saturated readings (magnet directly on the controller). Pre-bias
+        // magnitudes sat at ~150-200 µT, so this gate would have rejected every frame on
+        // uncalibrated data — the bias subtraction earlier in the pipeline is what makes a
+        // tight window workable.
         private const float MagMinMagnitudeUt = 10f;
-        private const float MagMaxMagnitudeUt = 200f;
+        private const float MagMaxMagnitudeUt = 120f;
 
         // Throttle SlimeVR sends — same reasoning as GenericControllerTracker (avoid UdpClient flooding).
         private static readonly long SendMinIntervalTicks = TimeSpan.TicksPerMillisecond * 5; // 200 Hz cap
@@ -94,9 +98,39 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private string _debug = string.Empty;
         private Vector3 _accel;
         private Vector3 _gyroRad;
-        private Vector3 _mag;            // µT, body frame
+        private string _lastPacketHex = string.Empty;
+        private int _lastPacketLen;
+        private Vector3 _mag;            // µT, body frame, post-bias when _magBiasValid
         private bool _magValid;          // last sample within plausible Earth-field window
         private long _magUsedSamples;    // diagnostic: how many 9D updates we have actually fed
+        // Factory hard-iron bias stored in flash at 0x13100 (3× f32 LE, µT). Populated by
+        // ResolveMagBiasViaFlashAsync. Subtract from raw*scale to recentre around Earth field.
+        // conhid reads this address but never applies it; we do. _magBiasValid gates usage so
+        // trackers that fail the read (comms error, BLE glitch) fall back to raw readings.
+        private Vector3 _magBias;
+        private bool _magBiasValid;
+        private string _magBiasStatus = "pending";   // debug: pending / flash-ok / flash-fail / autocal-ok
+        // Runtime autocalibrate fallback when factory flash read fails. Collect the first N
+        // raw-µT samples while gyro is near zero (controller still), take the mean as bias.
+        // Not perfect (doesn't touch soft-iron) but centres |M| around Earth field well enough
+        // for VQF's heading update, which cares about direction not magnitude.
+        // Manual reset on JC2: Home or Capture press-edge → RESET_FULL. No yaw-only variant —
+        // tester preference is a single gesture for the full recenter. Bytes per ndeadly
+        // hid_reports.md: Home = byte 0x05 bit 0x10, Capture = byte 0x05 bit 0x20.
+        private bool _homeHeld;
+        private bool _captureHeld;
+        private Vector3 _autoCalSum;
+        private int _autoCalCount;
+        private const int AutoCalTargetSamples = 500;
+        // Motion-based sampling: only accept frames where the controller is actively rotating
+        // (gyro above threshold). Averaging over rotational samples cancels the Earth-field
+        // component (which points the same way in world frame regardless of chip orientation)
+        // and leaves the body-frame hard-iron bias as the residual. A "still-sample" version
+        // of this autocal would subtract Earth field too, leaving the 9D fusion with no actual
+        // heading reference — which is exactly what a tester on 2026-04-24 saw (|M| ≈ 3 µT
+        // post-still-autocal). Threshold picked to reject hand tremor but accept a gentle
+        // figure-eight wave — user doesn't need to perform a violent rotation.
+        private const float AutoCalMinGyroRadSec = 0.5f;   // ~28 °/s — deliberate motion
         private Quaternion _rotation = Quaternion.Identity;
         private float _lastEulerPosition;
         private float _trackerEuler;
@@ -142,6 +176,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         // SlimeVR's Identify pulse and the generic haptic test.
         public bool SupportsHaptics => true;
         public bool SupportsIMU => true;
+        public long PacketsSent => _udpHandler?.PacketsSent ?? 0;
+        public long SendFailures => _udpHandler?.SendFailures ?? 0;
+        public bool ServerReachable => _udpHandler?.ServerReachable ?? false;
         public string Debug { get => _debug; set => _debug = value; }
         public bool Ready { get => _ready; set => _ready = value; }
         public bool Disconnected { get => _disconnected; set => _disconnected = value; }
@@ -211,11 +248,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 await Task.Delay(500);
                 await SendCommandAsync(CmdSensorStart);
 
-                // Best-effort variant detection via flash read of the USB PID stored in
-                // factory data at offset 0x13012. Replaces JoyCon2Manager's advert-byte-4
-                // guess with ground truth. Runs in background — IMU streaming starts
-                // immediately, variant updates the moment the response comes back.
-                _ = ResolveVariantViaFlashAsync();
+                // Best-effort flash reads: variant at 0x13012 (2 bytes), mag hard-iron bias at
+                // 0x13100 (12 bytes). Batched in a single subscribe/dispatch cycle because back-
+                // to-back subscribe/unsubscribe on Windows' BLE notify descriptor sometimes
+                // drops the second read silently. Background — IMU streams immediately.
+                _ = Task.Run(ResolveFlashCalibrationAsync);
 
                 // Watch for hardware disconnect so the manager can recycle our slot.
                 _device.ConnectionStatusChanged += OnConnectionStatusChanged;
@@ -228,76 +265,111 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         }
 
         /// <summary>
-        /// Reads the USB product ID Sony stored in flash at 0x13012 (2 bytes uint16 LE) via
-        /// the documented CMD 0x02 / subcmd 0x01 (Read Memory Block) round trip. Subscribes
-        /// to the response-notify characteristic (separate from the input notify we already
-        /// own), sends the read, awaits the response with a 1.5 s timeout, then unsubscribes.
-        /// On success replaces _variant with the SDL-confirmed PID mapping.
+        /// Batched factory-flash read: subscribes once to the response-notify characteristic,
+        /// issues (1) variant PID read at 0x13012 and (2) mag hard-iron bias read at 0x13100,
+        /// then unsubscribes. Each request has a dedicated TaskCompletionSource keyed on the
+        /// echoed request address so responses can't be cross-claimed. 500 ms pacing between
+        /// writes keeps the controller's command queue from dropping the second request —
+        /// observed empirically on the Switch 2 firmware.
         /// </summary>
-        private async Task ResolveVariantViaFlashAsync() {
+        private async Task ResolveFlashCalibrationAsync() {
             GattCharacteristic responseChar = null;
             TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> handler = null;
+            var variantTcs = new TaskCompletionSource<byte[]>();
+            var magBiasTcs = new TaskCompletionSource<byte[]>();
             try {
-                var services = await _device.GetGattServicesAsync(BluetoothCacheMode.Cached);
-                if (services.Status != GattCommunicationStatus.Success) return;
+                // Uncached so we see fresh attribute values on reconnect (cached handle can
+                // lag after OS side pairing changes).
+                var services = await _device.GetGattServicesAsync(BluetoothCacheMode.Uncached);
+                if (services.Status != GattCommunicationStatus.Success) { _magBiasStatus = "gatt-fail"; return; }
                 foreach (var svc in services.Services) {
-                    var chars = await svc.GetCharacteristicsAsync(BluetoothCacheMode.Cached);
+                    var chars = await svc.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
                     if (chars.Status != GattCommunicationStatus.Success) continue;
                     foreach (var ch in chars.Characteristics) {
                         if (ch.Uuid == ResponseNotifyUuid) { responseChar = ch; break; }
                     }
                     if (responseChar != null) break;
                 }
-                if (responseChar == null) return;
+                if (responseChar == null) { _magBiasStatus = "no-response-char"; return; }
 
-                var tcs = new TaskCompletionSource<byte[]>();
                 handler = (_, args) => {
                     try {
                         var reader = DataReader.FromBuffer(args.CharacteristicValue);
                         var bytes = new byte[reader.UnconsumedBufferLength];
                         reader.ReadBytes(bytes);
-                        // Flash read response: cmd echo (0x02) + status (0x01 = success).
-                        // Other commands' responses share this characteristic, so filter
-                        // strictly on cmd byte to avoid accepting an unrelated reply.
-                        if (bytes.Length >= 2 && bytes[0] == 0x02 && bytes[1] == 0x01) {
-                            tcs.TrySetResult(bytes);
-                        }
+                        // Accept cmd echo 0x02 status 0x01. Match by request address echoed
+                        // inside the response body. Address is uint32 LE, appears somewhere
+                        // in the 8..16 byte header window — scan for either request's addr.
+                        if (bytes.Length < 14 || bytes[0] != 0x02 || bytes[1] != 0x01) return;
+                        bool matchesVariant = ContainsAddrLe(bytes, 0x00013012);
+                        bool matchesMagBias = ContainsAddrLe(bytes, 0x00013100);
+                        if (matchesVariant) variantTcs.TrySetResult(bytes);
+                        if (matchesMagBias) magBiasTcs.TrySetResult(bytes);
                     } catch { }
                 };
                 responseChar.ValueChanged += handler;
 
                 var notifyStatus = await responseChar.WriteClientCharacteristicConfigurationDescriptorAsync(
                     GattClientCharacteristicConfigurationDescriptorValue.Notify);
-                if (notifyStatus != GattCommunicationStatus.Success) return;
+                if (notifyStatus != GattCommunicationStatus.Success) { _magBiasStatus = "notify-fail"; return; }
 
-                // CMD 0x02 subcmd 0x01 read flash. Header (8 bytes) + addr_le32 + length_le16
-                // + 2 bytes of zero padding to make the data block 8 bytes (matches the
-                // length field's documented minimum).
-                //   addr 0x00013012 → bytes 12 30 01 00
-                //   length 0x0002   → bytes 02 00
-                byte[] readFlashCmd = {
+                // Request 1: variant PID @ 0x13012 length 2
+                byte[] variantCmd = {
                     0x02, 0x91, 0x01, 0x01, 0x00, 0x06, 0x00, 0x00,
                     0x12, 0x30, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00
                 };
-                await SendCommandAsync(readFlashCmd);
-
-                var winner = await Task.WhenAny(tcs.Task, Task.Delay(1500));
-                if (winner == tcs.Task) {
-                    var bytes = tcs.Task.Result;
-                    var pid = ExtractPidFromFlashResponse(bytes);
+                await SendCommandAsync(variantCmd);
+                var variantWin = await Task.WhenAny(variantTcs.Task, Task.Delay(2000));
+                if (variantWin == variantTcs.Task) {
+                    var pid = ExtractPidFromFlashResponse(variantTcs.Task.Result);
                     if (pid.HasValue) {
                         _variant = pid.Value switch {
                             0x2066 => Variant.JoyConRight,
                             0x2067 => Variant.JoyConLeft,
-                            0x2068 => Variant.JoyConRight, // pair/grip — treat as R for slot
+                            0x2068 => Variant.JoyConRight,
                             0x2069 => Variant.ProController,
                             0x2073 => Variant.NsoGameCube,
                             _ => Variant.Unknown,
                         };
                     }
                 }
+
+                // Request 2: mag hard-iron bias @ 0x13100 length 12 (3× f32 LE). Retried with
+                // exponential backoff — with 8 controllers paired, Windows' BLE stack serializes
+                // responses across the shared response characteristic and a single 3 s window
+                // often loses to other controllers' traffic. 3 attempts × 8 s each covers the
+                // common-case saturation without stalling reconnect indefinitely.
+                byte[] magBiasCmd = {
+                    0x02, 0x91, 0x01, 0x01, 0x00, 0x06, 0x00, 0x00,
+                    0x00, 0x31, 0x01, 0x00, 0x0C, 0x00, 0x00, 0x00
+                };
+                bool biasLoaded = false;
+                for (int attempt = 0; attempt < 3 && !biasLoaded; attempt++) {
+                    await Task.Delay(500 + attempt * 500); // 500, 1000, 1500 ms between tries
+                    await SendCommandAsync(magBiasCmd);
+                    var magBiasWin = await Task.WhenAny(magBiasTcs.Task, Task.Delay(8000));
+                    if (magBiasWin == magBiasTcs.Task) {
+                        var bias = ExtractMagBiasFromFlashResponse(magBiasTcs.Task.Result);
+                        if (bias.HasValue) {
+                            // Factory bias takes priority over any autocal that may have
+                            // already completed during the retry window. Overwrite regardless
+                            // of previous _magBiasValid state.
+                            _magBias = bias.Value;
+                            _magBiasValid = true;
+                            _magBiasStatus = "flash-ok";
+                            biasLoaded = true;
+                        } else {
+                            _magBiasStatus = $"parse-fail-{attempt + 1}";
+                            // Reset TCS for a retry — the bytes we got weren't what we wanted.
+                            magBiasTcs = new TaskCompletionSource<byte[]>();
+                        }
+                    } else {
+                        _magBiasStatus = $"timeout-{attempt + 1}";
+                    }
+                }
             } catch (Exception ex) {
-                OnTrackerError?.Invoke(this, $"Variant flash read: {ex.Message}");
+                _magBiasStatus = "exception";
+                OnTrackerError?.Invoke(this, $"Flash calibration: {ex.Message}");
             } finally {
                 if (responseChar != null && handler != null) {
                     try { responseChar.ValueChanged -= handler; } catch { }
@@ -307,6 +379,43 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     } catch { }
                 }
             }
+        }
+
+        /// <summary>
+        /// Checks whether the flash-read response body contains the 4-byte little-endian
+        /// address we asked for. Search window is bounded because the address echo lives in
+        /// the response header, not far from the start.
+        /// </summary>
+        private static bool ContainsAddrLe(byte[] bytes, uint addr) {
+            byte b0 = (byte)(addr & 0xFF);
+            byte b1 = (byte)((addr >> 8) & 0xFF);
+            byte b2 = (byte)((addr >> 16) & 0xFF);
+            byte b3 = (byte)((addr >> 24) & 0xFF);
+            int limit = Math.Min(bytes.Length - 4, 24);
+            for (int i = 4; i <= limit; i++) {
+                if (bytes[i] == b0 && bytes[i + 1] == b1 && bytes[i + 2] == b2 && bytes[i + 3] == b3) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The 12-byte bias payload (3× f32 LE) sits past the response header + addr/length
+        /// echo. Same as <see cref="ExtractPidFromFlashResponse"/>, we scan a small window
+        /// for three plausible floats (|value| < 500 µT per axis — well above any sane hard-
+        /// iron but below a NaN/garbage read) and accept the first triple that fits.
+        /// </summary>
+        private static Vector3? ExtractMagBiasFromFlashResponse(byte[] bytes) {
+            if (bytes.Length < 20) return null;
+            for (int off = 8; off + 12 <= bytes.Length && off <= Math.Min(bytes.Length - 12, 24); off++) {
+                float bx = BitConverter.ToSingle(bytes, off);
+                float by = BitConverter.ToSingle(bytes, off + 4);
+                float bz = BitConverter.ToSingle(bytes, off + 8);
+                if (!float.IsFinite(bx) || !float.IsFinite(by) || !float.IsFinite(bz)) continue;
+                if (MathF.Abs(bx) > 500f || MathF.Abs(by) > 500f || MathF.Abs(bz) > 500f) continue;
+                if (bx == 0f && by == 0f && bz == 0f) continue; // all-zero is an unprogrammed page
+                return new Vector3(bx, by, bz);
+            }
+            return null;
         }
 
         /// <summary>
@@ -350,12 +459,41 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 if (len < 0x3C) return; // need at least up to gyro Z
                 var bytes = new byte[len];
                 reader.ReadBytes(bytes);
+                _lastPacketLen = len;
+                {
+                    int from = 0x10, to = Math.Min(len, 0x40);
+                    var sb = new System.Text.StringBuilder((to - from) * 3);
+                    for (int i = from; i < to; i++) sb.Append(bytes[i].ToString("X2")).Append(' ');
+                    _lastPacketHex = sb.ToString();
+                }
 
-                // IMU: int16 LE at the offsets documented by ndeadly. Motion block starts at
-                // 0x2A (timestamp), accel at 0x30, gyro at 0x36. Axis convention follows SDL's
-                // battle-tested SDL_hidapi_switch2.c: output = (raw_x, raw_z, -raw_y). This
-                // leaves the data in VQF's body frame (Z up), so we use the Identity VQF
-                // entry points that skip the JSL-specific (X, -Z, Y) remap.
+                // Buttons at byte 0x04..0x07 per ndeadly hid_reports.md. Home (0x05 bit 0x10)
+                // and Capture (0x05 bit 0x20) both trigger RESET_FULL on press-edge. Fire-and-
+                // forget — any BLE glitch during the send is safe to swallow.
+                if (len > 0x05) {
+                    bool homeNow = (bytes[0x05] & 0x10) != 0;
+                    bool captureNow = (bytes[0x05] & 0x20) != 0;
+
+                    if (homeNow && !_homeHeld) {
+                        _homeHeld = true;
+                        try { _ = _udpHandler?.SendButton(FirmwareConstants.UserActionType.RESET_FULL); } catch { }
+                    } else if (!homeNow) {
+                        _homeHeld = false;
+                    }
+
+                    if (captureNow && !_captureHeld) {
+                        _captureHeld = true;
+                        try { _ = _udpHandler?.SendButton(FirmwareConstants.UserActionType.RESET_FULL); } catch { }
+                    } else if (!captureNow) {
+                        _captureHeld = false;
+                    }
+                }
+
+                // IMU: int16 LE at documented offsets (motion timestamp 0x2A, accel 0x30, gyro 0x36).
+                // Axis: identity passthrough. Joy2Win's (-x,-z,+y) remap was for DSU/gamepad
+                // orientation; for VQF body-frame (Z-up, gravity on +Z at rest) we need the
+                // chip's native frame. Tester data confirmed chip's +raw_z is physical up,
+                // so identity gives gravity on +output.Z as VQF expects.
                 short axRaw = BitConverter.ToInt16(bytes, 0x30);
                 short ayRaw = BitConverter.ToInt16(bytes, 0x32);
                 short azRaw = BitConverter.ToInt16(bytes, 0x34);
@@ -364,11 +502,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 short gzRaw = BitConverter.ToInt16(bytes, 0x3A);
 
                 _accel = new Vector3(axRaw * AccelScaleMsPerUnit,
-                                      azRaw * AccelScaleMsPerUnit,
-                                     -ayRaw * AccelScaleMsPerUnit);
+                                     ayRaw * AccelScaleMsPerUnit,
+                                     azRaw * AccelScaleMsPerUnit);
                 _gyroRad = new Vector3(gxRaw * GyroScaleRadSecPerUnit,
-                                        gzRaw * GyroScaleRadSecPerUnit,
-                                       -gyRaw * GyroScaleRadSecPerUnit);
+                                       gyRaw * GyroScaleRadSecPerUnit,
+                                       gzRaw * GyroScaleRadSecPerUnit);
                 // User-tunable per-MAC gyro trim (Joy-Con 2 has no factory cal we can read,
                 // unlike the JSL controllers, so let the user nudge it manually if a specific
                 // device drifts).
@@ -377,9 +515,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
                 // Magnetometer at 0x19 (3 × int16 LE per ndeadly hid_reports.md). Feature bit 7
                 // is enabled by our 0xFF mask in CmdSensorInit/Start so the controller streams it.
-                // We sanity-check the magnitude against the Earth-field window — all-zero or
-                // saturated readings (cable, magnet near controller) drop us back to 6DoF for
-                // that frame instead of feeding garbage into VQF and corrupting the fused yaw.
+                // Pipeline: raw int16 → µT via 0.15 scale → subtract factory hard-iron bias
+                // (read from flash 0x13100) → validate against Earth-field window. Without the
+                // bias subtraction, shell-embedded magnets / steel leave |M| ~3× Earth field and
+                // the gate rejects every sample. Post-bias expected magnitude: ~25-65 µT.
                 _magValid = false;
                 if (len >= 0x1F) {
                     short mxRaw = BitConverter.ToInt16(bytes, 0x19);
@@ -391,16 +530,36 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     var magUt = new Vector3(mxRaw * MagScaleMicroTeslaPerUnit,
                                              mzRaw * MagScaleMicroTeslaPerUnit,
                                             -myRaw * MagScaleMicroTeslaPerUnit);
+                    // Runtime autocalibrate: fallback when factory flash read fails. Only accept
+                    // samples while the controller is ACTIVELY ROTATING (gyro above threshold).
+                    // Earth-field vector is constant in world frame, so averaging over rotated
+                    // samples cancels it and leaves the body-frame hard-iron offset as the
+                    // residual. A still-sample mean would subtract the Earth field too and
+                    // leave VQF with |M| ≈ 0 — no heading reference. User must wave the
+                    // controller in a figure-8 or shake for a few seconds during startup.
+                    if (!_magBiasValid && _autoCalCount < AutoCalTargetSamples
+                        && _gyroRad.Length() > AutoCalMinGyroRadSec) {
+                        _autoCalSum += magUt;
+                        _autoCalCount++;
+                        if (_autoCalCount >= AutoCalTargetSamples) {
+                            _magBias = _autoCalSum / AutoCalTargetSamples;
+                            _magBiasValid = true;
+                            _magBiasStatus = "autocal-ok";
+                        }
+                    }
+                    if (_magBiasValid) magUt -= _magBias;
                     float magMag = magUt.Length();
+                    // Always keep the last reading for debug display, even if gated out, so
+                    // "|M|" on the debug page reflects the current frame instead of stale data.
+                    _mag = magUt;
                     if (magMag > MagMinMagnitudeUt && magMag < MagMaxMagnitudeUt) {
-                        _mag = magUt;
                         _magValid = true;
                     }
                 }
 
-                // Battery voltage in mV at 0x1F (uint16 LE) per ndeadly/switch2_controller_research.
-                // Earlier jc2cpp README placed it at 0x1C — wrong, that position is magnetometer Y.
-                // Map Li-ion cell window 3000..4200 mV → 0..1.
+                // Battery voltage in mV at 0x1F (uint16 LE). Source: ndeadly pcap-verified docs
+                // + Joycon2forMac (both say "mV, divide by 1000 for volts"). Joy2Win's raw/4095
+                // formula appears empirically incorrect. Map Li-ion cell window 3000..4200 mV → 0..1.
                 if (len >= 0x21) {
                     int batMv = BitConverter.ToUInt16(bytes, 0x1F);
                     if (batMv > 0) {
@@ -467,15 +626,26 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 // physical device keeps its SlimeVR-side orientation across reconnects.
                 var mountYaw = Configuration.Instance?.GetMountYawQuaternion(_macSpoof) ?? Quaternion.Identity;
                 var publishedRotation = Quaternion.Normalize(mountYaw * _rotation);
+                // HMD-yaw fallback: if SteamVR is not running, GetHMDRotation returns a quat built
+                // from a zero matrix → NaN. That would nuke the outbound packet. Detect via NaN
+                // on _trackerEuler and fall back to publishedRotation so the tracker still works
+                // standalone (no HMD) — SlimeVR body tracking without a headset is a supported flow.
+                bool hmdYawValid = false;
                 if (GenericTrackerManager.DebugOpen || _yawReferenceTypeValue != RotationReferenceType.TrustDeviceYaw) {
-                    var trackerRotation = OpenVRReader.GetTrackerRotation(_yawReferenceTypeValue);
-                    _trackerEuler = trackerRotation.GetYawFromQuaternion();
+                    try {
+                        var trackerRotation = OpenVRReader.GetTrackerRotation(_yawReferenceTypeValue);
+                        _trackerEuler = trackerRotation.GetYawFromQuaternion();
+                        hmdYawValid = !float.IsNaN(_trackerEuler) && !float.IsInfinity(_trackerEuler);
+                    } catch { _trackerEuler = 0f; hmdYawValid = false; }
+                    if (!hmdYawValid) _trackerEuler = 0f;
                     _lastEulerPosition = -_trackerEuler;
                     _euler = publishedRotation.QuaternionToEuler();
                 }
-                // Bundle rotation + accel (m/s²) into one datagram — saves one syscall per
-                // BLE sample. _accel already in m/s² courtesy of AccelScaleMsPerUnit.
-                var bundleRot = _yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw
+                // Rotation + accel via SetSensorBundle. Internally gated on the server's
+                // advertised PROTOCOL_BUNDLE_SUPPORT: uses BUNDLE (type 100) when the server
+                // has replied to our FEATURE_FLAGS with that bit, otherwise falls back to
+                // two separate sends. _accel already in m/s².
+                var bundleRot = (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw || !hmdYawValid)
                     ? publishedRotation
                     : new Vector3(_euler.X, _euler.Y, _lastEulerPosition).ToQuaternion();
                 await _udpHandler.SetSensorBundle(bundleRot, _accel, 0);
@@ -485,7 +655,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     _lastBatteryPush = DateTime.UtcNow;
                 }
 
-                if (GenericTrackerManager.DebugOpen) {
+                {
                     string fusion = _magValid ? "9D" : "6D";
                     _debug =
                         $"Device Id: {_macSpoof}\r\n" +
@@ -496,7 +666,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                         $"Gyro:  X:{_gyroRad.X:F3}, Y:{_gyroRad.Y:F3}, Z:{_gyroRad.Z:F3}\r\n" +
                         $"Accel: X:{_accel.X:F2}, Y:{_accel.Y:F2}, Z:{_accel.Z:F2}\r\n" +
                         $"Mag:   X:{_mag.X:F1}, Y:{_mag.Y:F1}, Z:{_mag.Z:F1}  |M|={_mag.Length():F1} uT (valid:{_magValid})\r\n" +
-                        $"Battery: {_lastBatteryFraction * 100f:F0}%\r\n";
+                        $"MagBias: X:{_magBias.X:F1}, Y:{_magBias.Y:F1}, Z:{_magBias.Z:F1}  (loaded:{_magBiasValid}, src:{_magBiasStatus})\r\n" +
+                        $"Battery: {_lastBatteryFraction * 100f:F0}%\r\n" +
+                        $"Pkt len: {_lastPacketLen}\r\n" +
+                        $"Bytes[10..40]: {_lastPacketHex}\r\n";
                 }
             } catch (Exception ex) {
                 OnTrackerError?.Invoke(this, $"Publish: {ex.Message}");
