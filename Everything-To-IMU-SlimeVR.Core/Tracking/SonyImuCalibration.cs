@@ -92,6 +92,24 @@ public static class SonyImuCalibration
         bool isDs4 = device.ProductID == DualShock4V1Pid || device.ProductID == DualShock4V2Pid
                   || device.ProductID == DualShockDonglePid;
 
+        // DS4 activator: reading feature 0x02 on a fresh handle flips the controller out of
+        // "compat mode" (input report 0x01, sticks+buttons only) into full mode (input report
+        // 0x11 over BT / extended 0x01 over USB with IMU + touchpad). Without this some BT
+        // pairing states deliver truncated input streams and our IMU never fires. Result of
+        // the read itself is discarded — this is purely a side-effect call. DS5 ignores it.
+        if (isDs4)
+        {
+            try
+            {
+                var activator = new byte[37];
+                activator[0] = 0x02;
+                using var s = device.Open();
+                s.ReadTimeout = 500;
+                s.GetFeature(activator);
+            }
+            catch { /* exclusive lock or transport mismatch — not fatal */ }
+        }
+
         // Try report 0x05 (DS5 always; DS4 over Bluetooth).
         try
         {
