@@ -269,15 +269,15 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 // into one step. Old code sent raw g, which the server treated as m/s² and
                 // therefore saw linear acceleration ~9.8× too small — explains why fast
                 // direction changes felt mushy in the skeleton solver.
-                await udpHandler.SetSensorAcceleration(_sensorOrientation.Accelerometer * 0.980665f, 0);
-                if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw)
-                {
-                    await udpHandler.SetSensorRotation(publishedRotation, 0);
-                }
-                else
-                {
-                    await udpHandler.SetSensorRotation(new Vector3(_euler.X, _euler.Y, _lastEulerPositon).ToQuaternion(), 0);
-                }
+                // Bundle rotation + accel into one datagram — halves outbound syscalls vs two
+                // separate SetSensor* calls. Server acknowledges BUNDLE support via FEATURE_FLAGS
+                // at handshake; if for some reason it didn't, the bundle is still a valid
+                // single datagram the server unwraps.
+                var accelMps2 = _sensorOrientation.Accelerometer * 0.980665f;
+                var rot = _yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw
+                    ? publishedRotation
+                    : new Vector3(_euler.X, _euler.Y, _lastEulerPositon).ToQuaternion();
+                await udpHandler.SetSensorBundle(rot, accelMps2, 0);
                 if (GenericTrackerManager.DebugOpen)
                 {
                     _debug =
@@ -401,10 +401,29 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             {
                 udpHandler.SendTrigger(1, 0);
             }
-            // Grip
+            // Bit 17 (0x20000) is repurposed depending on controller family (JSL buttonmask
+            // alias overlap): on DS4/DS5 it's touchpad-click → grip; on Switch Pro / Joy-Con
+            // it's the Capture button → yaw-only recenter (complements Home = full reset).
+            int ctype = JSL.JslGetControllerType(_index);
+            bool isSwitchFamily = ctype == 1 || ctype == 2 || ctype == 3;
             if (HasButton(state, 0x20000))
             {
-                udpHandler.SendGrip(1, 0);
+                if (isSwitchFamily)
+                {
+                    if (!_captureHeld)
+                    {
+                        _captureHeld = true;
+                        try { _ = udpHandler.SendButton(FirmwareConstants.UserActionType.RESET_YAW); } catch { }
+                    }
+                }
+                else
+                {
+                    udpHandler.SendGrip(1, 0);
+                }
+            }
+            else
+            {
+                _captureHeld = false;
             }
             // B1
             if (HasButton(state, 0x04000) || HasButton(state, 0x00008))
@@ -482,11 +501,23 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     waitingForButton3Release = false;
                 }
             }
-            // Thumbstick L/R
+            // Thumbstick L/R with dirty-check to avoid ~33% of UDP traffic (previously sent
+            // every sample regardless of change). Epsilon 0.01 = ~1% stick deflection — below
+            // the noise floor of Hall-effect sticks; change below that isn't perceptible in VR.
             float x = MathF.Abs(state.stickLX) > MathF.Abs(state.stickRX) ? state.stickLX * -1 : state.stickRX;
             float y = MathF.Abs(state.stickLY) > MathF.Abs(state.stickRY) ? state.stickLY : state.stickRY * -1;
-            udpHandler.SetThumbstick(new Vector2(y, x), 0);
+            const float stickEpsilon = 0.01f;
+            if (MathF.Abs(x - _lastStickX) >= stickEpsilon || MathF.Abs(y - _lastStickY) >= stickEpsilon)
+            {
+                _lastStickX = x;
+                _lastStickY = y;
+                udpHandler.SetThumbstick(new Vector2(y, x), 0);
+            }
         }
+
+        private float _lastStickX;
+        private float _lastStickY;
+        private bool _captureHeld;
 
         public void Identify()
         {
