@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-  <version>0.2.0.0</version>
-  <url>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/download/v0.2.0/Everything-To-IMU-SlimeVR-v0.2.0.zip</url>
+  <version>0.2.1.0</version>
+  <url>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/download/v0.2.1/Everything-To-IMU-SlimeVR-v0.2.1.zip</url>
   <changelog>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases</changelog>
   <mandatory>false</mandatory>
   <!--
@@ -10,5 +10,5 @@
     verification field so legacy installs won't have it — absence treated as "skip verify"
     but a loud warning is logged. Starting with v0.2.1 every release will include this.
   -->
-  <checksum algorithm="SHA256"></checksum>
+  <checksum algorithm="SHA256">67fa46a1ed1fd37ad8a9be43c7cd2dfb9d631ca2e668bf6835402ba92253f90c</checksum>
 </item>
