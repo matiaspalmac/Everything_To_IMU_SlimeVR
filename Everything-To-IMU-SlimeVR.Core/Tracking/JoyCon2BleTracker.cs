@@ -473,16 +473,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     _lastEulerPosition = -_trackerEuler;
                     _euler = publishedRotation.QuaternionToEuler();
                 }
-                // SlimeVR's ACCELERATION packet contract is m/s² (per slimevr-tracker-esp).
-                // _accel is already in m/s² courtesy of AccelScaleMsPerUnit, so send it as-is.
-                // Earlier divide by g matched GenericControllerTracker's old g-units bug; both
-                // now send m/s² consistently.
-                await _udpHandler.SetSensorAcceleration(_accel, 0);
-                if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw) {
-                    await _udpHandler.SetSensorRotation(publishedRotation, 0);
-                } else {
-                    await _udpHandler.SetSensorRotation(new Vector3(_euler.X, _euler.Y, _lastEulerPosition).ToQuaternion(), 0);
-                }
+                // Bundle rotation + accel (m/s²) into one datagram — saves one syscall per
+                // BLE sample. _accel already in m/s² courtesy of AccelScaleMsPerUnit.
+                var bundleRot = _yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw
+                    ? publishedRotation
+                    : new Vector3(_euler.X, _euler.Y, _lastEulerPosition).ToQuaternion();
+                await _udpHandler.SetSensorBundle(bundleRot, _accel, 0);
 
                 if ((DateTime.UtcNow - _lastBatteryPush).TotalSeconds > 30) {
                     try { await _udpHandler.SetSensorBattery(_lastBatteryFraction * 100f, 3.7f); } catch { }
