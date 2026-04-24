@@ -87,6 +87,7 @@ public partial class DebugViewModel : ObservableObject
         foreach (var t in GenericTrackerManager.TrackersBluetooth) live.Add(t);
         foreach (var t in GenericTrackerManager.TrackersWiimote) live.Add(t);
         foreach (var t in GenericTrackerManager.Trackers3ds) live.Add(t);
+        foreach (var t in GenericTrackerManager.TrackersJoyCon2) live.Add(t);
         foreach (var kv in GenericTrackerManager.TrackersUdpHapticDevice) live.Add(kv.Value);
 
         var liveSet = new HashSet<IBodyTracker>(live);
