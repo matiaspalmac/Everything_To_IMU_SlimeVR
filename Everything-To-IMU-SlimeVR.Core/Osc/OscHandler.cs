@@ -78,7 +78,11 @@ namespace Everything_To_IMU_SlimeVR.Osc
             {
                 try
                 {
-                    _oscClient = new UdpClient(port);
+                    // Loopback-only by default — VRChat/local OSC senders are local.
+                    // Enable AcceptOscFromLan to receive from other hosts (e.g. phone OSC app).
+                    bool allowLan = Configuration.Instance.AcceptOscFromLan;
+                    var bindAddr = allowLan ? IPAddress.Any : IPAddress.Loopback;
+                    _oscClient = new UdpClient(new IPEndPoint(bindAddr, port));
                 }
                 catch (SocketException ex)
                 {

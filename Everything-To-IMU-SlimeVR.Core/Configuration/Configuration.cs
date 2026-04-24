@@ -28,6 +28,12 @@ namespace Everything_To_IMU_SlimeVR
         private List<string> _joyCon2KnownAddresses = new List<string>();
         private bool _notificationsEnabled = true;
         private float _batteryLowThreshold = 0.15f;
+        // Companion listeners (3DS / Wiimote) and OSC receiver bind loopback by default.
+        // Enabling this allows private-range LAN sources — needed when the 3DS or WiiClient
+        // companion runs on a separate device. OSC LAN is separate because exposing it has
+        // different implications (VRChat usually loopback anyway).
+        private bool _acceptCompanionsFromLan = false;
+        private bool _acceptOscFromLan = false;
 
         public List<TrackerConfig> TrackerConfigs { get => _trackerConfigs; set => _trackerConfigs = value; }
         public List<TrackerConfig> TrackerConfigs3ds { get => _trackerConfig3ds; set => _trackerConfig3ds = value; }
@@ -51,6 +57,8 @@ namespace Everything_To_IMU_SlimeVR
         public List<string> JoyCon2KnownAddresses { get => _joyCon2KnownAddresses; set => _joyCon2KnownAddresses = value ?? new(); }
         public bool NotificationsEnabled { get => _notificationsEnabled; set => _notificationsEnabled = value; }
         public float BatteryLowThreshold { get => _batteryLowThreshold; set => _batteryLowThreshold = Math.Clamp(value, 0.01f, 0.5f); }
+        public bool AcceptCompanionsFromLan { get => _acceptCompanionsFromLan; set => _acceptCompanionsFromLan = value; }
+        public bool AcceptOscFromLan { get => _acceptOscFromLan; set => _acceptOscFromLan = value; }
 
         public void RememberJoyCon2Address(ulong address)
         {

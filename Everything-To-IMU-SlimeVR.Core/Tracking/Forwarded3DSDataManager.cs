@@ -32,7 +32,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             return Quaternion.Normalize(Quaternion.Concatenate(qRoll, qPitch));
         }
         async Task Initialize() {
-            UdpClient udpClient = new UdpClient(listenPort); // Match port from 3DS
+            // Bind loopback by default; opt-in via Configuration for LAN companions (3DS on Wi-Fi).
+            bool allowLan = Configuration.Instance?.AcceptCompanionsFromLan ?? false;
+            var bindEp = new IPEndPoint(allowLan ? IPAddress.Any : IPAddress.Loopback, listenPort);
+            UdpClient udpClient = new UdpClient(bindEp);
             _deviceMap = new ConcurrentDictionary<string, ThreeDSState>();
             int expectedSize = Marshal.SizeOf(typeof(ImuPacket));
             Console.WriteLine("Listening for IMU data...");
@@ -72,6 +75,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
         static bool IsAllowedSource(IPAddress addr) {
             if (IPAddress.IsLoopback(addr)) return true;
+            // LAN sources only accepted when user opts in; default is loopback-only bind, so
+            // this is belt-and-suspenders but protects if the socket was bound broader.
+            if (!(Configuration.Instance?.AcceptCompanionsFromLan ?? false)) return false;
             if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
             var bytes = addr.GetAddressBytes();
             if (bytes[0] == 10) return true;

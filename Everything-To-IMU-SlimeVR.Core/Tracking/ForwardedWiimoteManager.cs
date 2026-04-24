@@ -35,9 +35,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         async Task StartListener() {
             TcpListener listener = null;
             try {
-                listener = new TcpListener(IPAddress.Any, 9909);
+                // Loopback default; opt-in LAN via Configuration for Wii + companion-on-other-box setups.
+                bool allowLan = Configuration.Instance?.AcceptCompanionsFromLan ?? false;
+                listener = new TcpListener(allowLan ? IPAddress.Any : IPAddress.Loopback, 9909);
                 listener.Start();
-                Console.WriteLine("TCP Listener started on port 9909...");
+                Console.WriteLine($"TCP Listener started on port 9909 (LAN={allowLan})...");
 
                 while (true) {
                     try {
@@ -63,6 +65,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
         static bool IsAllowedSource(IPAddress addr) {
             if (IPAddress.IsLoopback(addr)) return true;
+            if (!(Configuration.Instance?.AcceptCompanionsFromLan ?? false)) return false;
             if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
             var bytes = addr.GetAddressBytes();
             // 10.0.0.0/8
