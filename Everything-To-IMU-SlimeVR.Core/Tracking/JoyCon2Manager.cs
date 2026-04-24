@@ -28,6 +28,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private static readonly List<JoyCon2BleTracker> _trackers = new();
         private static BluetoothLEAdvertisementWatcher _watcher;
         private static int _spawnedCount;
+        // Periodic reconnect loop. JC2s only advertise at sync/power-on, so a mid-session
+        // Windows BLE disconnect leaves the device silent — the advert watcher never sees it
+        // again until the user presses SYNC. This timer polls every 10 s and tries
+        // FromBluetoothAddressAsync directly on every known-but-disconnected address, which
+        // succeeds when the device is still paired and listening. Safe no-op when the JC2 is
+        // genuinely asleep (FromBluetoothAddressAsync returns null → ConnectAsync bails).
+        private static System.Threading.Timer _reconnectTimer;
+        private static readonly TimeSpan ReconnectPollInterval = TimeSpan.FromSeconds(10);
 
         public static IReadOnlyList<JoyCon2BleTracker> Trackers {
             get { lock (_lock) return _trackers.ToArray(); }
@@ -52,6 +60,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     OnError?.Invoke(null, $"BLE watcher start failed: {ex.Message}");
                     _watcher = null;
                 }
+                _reconnectTimer ??= new System.Threading.Timer(
+                    _ => { try { TryReconnectKnown(); } catch { } },
+                    null, ReconnectPollInterval, ReconnectPollInterval);
             }
             TryReconnectKnown();
         }
@@ -74,6 +85,8 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             lock (_lock) {
                 try { _watcher?.Stop(); } catch { }
                 _watcher = null;
+                try { _reconnectTimer?.Dispose(); } catch { }
+                _reconnectTimer = null;
                 foreach (var t in _trackers) {
                     try { t.Dispose(); } catch { }
                 }
@@ -116,16 +129,23 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 }
                 if (!prefixOk) continue;
                 match = true;
-                // Byte index 4 (just past the prefix) hints at variant on Joy-Con 2 family. Mapping
-                // is empirical; default to Unknown when in doubt so the user can categorise via UI.
-                if (data.Length >= 5) {
-                    variant = data[4] switch {
-                        0x05 => JoyCon2BleTracker.Variant.JoyConRight,
-                        0x06 => JoyCon2BleTracker.Variant.JoyConLeft,
-                        0x09 => JoyCon2BleTracker.Variant.ProController,
-                        0x0A => JoyCon2BleTracker.Variant.NsoGameCube,
-                        _ => JoyCon2BleTracker.Variant.Unknown,
-                    };
+                // PID lives at manufacturer-data offset 7-8 (uint16 LE). Switch 2 family IDs
+                // start at 0x2060 per ndeadly/switch2_controller_research. Scan the full advert
+                // for the 0x2060-range PID pattern — offset may vary slightly between firmware
+                // revisions, and falling back to "find any Switch 2 PID anywhere" handles that.
+                for (int off = 0; off + 2 <= data.Length; off++) {
+                    ushort candidate = (ushort)(data[off] | (data[off + 1] << 8));
+                    if (candidate >= 0x2060 && candidate <= 0x2080) {
+                        variant = candidate switch {
+                            0x2066 => JoyCon2BleTracker.Variant.JoyConRight,
+                            0x2067 => JoyCon2BleTracker.Variant.JoyConLeft,
+                            0x2068 => JoyCon2BleTracker.Variant.JoyConRight,
+                            0x2069 => JoyCon2BleTracker.Variant.ProController,
+                            0x2073 => JoyCon2BleTracker.Variant.NsoGameCube,
+                            _ => JoyCon2BleTracker.Variant.Unknown,
+                        };
+                        if (variant != JoyCon2BleTracker.Variant.Unknown) break;
+                    }
                 }
                 break;
             }
