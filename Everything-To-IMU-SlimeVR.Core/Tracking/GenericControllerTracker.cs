@@ -283,10 +283,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 // into one step. Old code sent raw g, which the server treated as m/s² and
                 // therefore saw linear acceleration ~9.8× too small — explains why fast
                 // direction changes felt mushy in the skeleton solver.
-                // Bundle rotation + accel into one datagram — halves outbound syscalls vs two
-                // separate SetSensor* calls. Server acknowledges BUNDLE support via FEATURE_FLAGS
-                // at handshake; if for some reason it didn't, the bundle is still a valid
-                // single datagram the server unwraps.
+                // Rotation + accel via SetSensorBundle. Internally gated on the server's
+                // advertised PROTOCOL_BUNDLE_SUPPORT: uses BUNDLE (type 100) when the server
+                // has replied to our FEATURE_FLAGS with that bit, otherwise falls back to
+                // two separate sends. Safe on modern and legacy servers.
                 var accelMps2 = _sensorOrientation.Accelerometer * 0.980665f;
                 var rot = _yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw
                     ? publishedRotation
