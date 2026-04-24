@@ -71,6 +71,21 @@
                 </StackPanel>
             </Border>
 
+            <Border Padding="16" CornerRadius="8" Margin="0,0,0,16"
+                    Background="{DynamicResource ControlFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource ControlElevationBorderBrush}"
+                    BorderThickness="1">
+                <StackPanel>
+                    <ui:TextBlock Text="Network" FontTypography="Subtitle" Margin="0,0,0,12" />
+                    <TextBlock Text="Bridge listens on loopback only by default. Enable LAN access only if your 3DS / Wiimote companion or OSC sender runs on a different device."
+                               TextWrapping="Wrap" Opacity="0.7" Margin="0,0,0,8" />
+                    <ui:ToggleSwitch Content="Accept 3DS / Wiimote companion from LAN"
+                                     IsChecked="{Binding AcceptCompanionsFromLan}" Margin="0,0,0,4" />
+                    <ui:ToggleSwitch Content="Accept OSC input from LAN"
+                                     IsChecked="{Binding AcceptOscFromLan}" />
+                </StackPanel>
+            </Border>
+
             <Border Padding="16" CornerRadius="8"
                     Background="{DynamicResource ControlFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource ControlElevationBorderBrush}"

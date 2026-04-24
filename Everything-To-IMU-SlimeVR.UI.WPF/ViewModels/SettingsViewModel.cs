@@ -18,6 +18,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _audioHapticsActive = true;
     [ObservableProperty] private bool _notificationsEnabled = true;
     [ObservableProperty] private int _batteryLowPercent = 15;
+    [ObservableProperty] private bool _acceptCompanionsFromLan;
+    [ObservableProperty] private bool _acceptOscFromLan;
 
     public string AppVersion => Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "0.0.0";
 
@@ -69,6 +71,13 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnAudioHapticsActiveChanged(bool value) => Persist(c => c.AudioHapticsActive = value);
     partial void OnNotificationsEnabledChanged(bool value) => Persist(c => c.NotificationsEnabled = value);
     partial void OnBatteryLowPercentChanged(int value) => Persist(c => c.BatteryLowThreshold = Math.Clamp(value, 1, 50) / 100f);
+    partial void OnAcceptCompanionsFromLanChanged(bool value) => Persist(c => c.AcceptCompanionsFromLan = value);
+    partial void OnAcceptOscFromLanChanged(bool value)
+    {
+        Persist(c => c.AcceptOscFromLan = value);
+        // OSC listener binds at startup — trigger re-bind so flag takes effect without restart.
+        try { AppServices.Instance.TrackerManager?.RefreshOscPort(); } catch { }
+    }
 
     [RelayCommand]
     private void OpenLogs()
@@ -100,6 +109,8 @@ public partial class SettingsViewModel : ObservableObject
             AudioHapticsActive = cfg.AudioHapticsActive;
             NotificationsEnabled = cfg.NotificationsEnabled;
             BatteryLowPercent = (int)Math.Round(cfg.BatteryLowThreshold * 100);
+            AcceptCompanionsFromLan = cfg.AcceptCompanionsFromLan;
+            AcceptOscFromLan = cfg.AcceptOscFromLan;
             var currentMode = ThemeManager.Parse(cfg.Theme);
             _selectedTheme = Themes.FirstOrDefault(t => t.Mode == currentMode) ?? Themes[0];
             _selectedLanguage = Languages.FirstOrDefault(l => l.Code == cfg.Language) ?? Languages[0];
