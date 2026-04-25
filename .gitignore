@@ -16,3 +16,8 @@ publish/
 *.bak
 # Local-only planning doc; not part of the public repo.
 ROADMAP.md
+# BlazePose ONNX models (downloaded from PINTO_model_zoo, ~17 MB combined). Not redistributed.
+Models/blazepose/*.onnx
+# AUDIT report — local working notes.
+AUDIT_2026_04_24.md
+dist-debug/

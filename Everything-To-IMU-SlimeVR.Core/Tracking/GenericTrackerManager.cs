@@ -1,4 +1,5 @@
 ﻿using Everything_To_IMU_SlimeVR.Osc;
+using Everything_To_IMU_SlimeVR.Tracking.Camera;
 using SlimeImuProtocol.SlimeVR;
 using System.Drawing;
 using System.Net.Sockets;
@@ -19,6 +20,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         private static List<WiiTracker> _trackersWiimote = new List<WiiTracker>();
         private static List<WiiTracker> _trackersNunchuck = new List<WiiTracker>();
         private static List<JoyCon2BleTracker> _trackersJoyCon2 = new List<JoyCon2BleTracker>();
+        private static List<WebcamPoseTracker> _trackersWebcam = new List<WebcamPoseTracker>();
         private static Dictionary<string, UDPHapticDevice> _trackersUdpHapticDevice = new Dictionary<string, UDPHapticDevice>();
         private static Dictionary<int, KeyValuePair<int, bool>> _trackerInfo = new Dictionary<int, KeyValuePair<int, bool>>();
         private static Dictionary<int, KeyValuePair<string, bool>> _trackerInfo3ds = new Dictionary<int, KeyValuePair<string, bool>>();
@@ -81,6 +83,34 @@ namespace Everything_To_IMU_SlimeVR.Tracking
             };
             JoyCon2Manager.OnError += (_, msg) => OnTrackerError?.Invoke(this, $"JoyCon2: {msg}");
             JoyCon2Manager.Start();
+
+            // Webcam pose source — same registry-event pattern as JoyCon2Manager. Trackers
+            // appear in the global list as soon as the manager is started by the UI; the
+            // pipeline itself is not auto-started so the camera + ONNX runtime only spin up
+            // when the user opts in.
+            WebcamPoseManager.Instance.TrackerAdded += (_, tracker) => {
+                lock (_registryLock) {
+                    _trackersWebcam.Add(tracker);
+                    _allTrackers.Add(tracker);
+                }
+            };
+            WebcamPoseManager.Instance.TrackerRemoved += (_, tracker) => {
+                lock (_registryLock) {
+                    _trackersWebcam.Remove(tracker);
+                    _allTrackers.Remove(tracker);
+                }
+            };
+            WebcamPoseManager.Instance.StatusChanged += msg => OnTrackerError?.Invoke(this, $"Webcam: {msg}");
+
+            // Honour the persisted toggle. Off by default; flip to true in config.json (or via
+            // the future Settings page) to spin up the camera + ONNX runtime.
+            if (_configuration.WebcamPoseEnabled) {
+                WebcamPoseManager.Instance.Start(
+                    deviceIndex: _configuration.WebcamPoseDeviceIndex,
+                    captureWidth: _configuration.WebcamPoseWidth,
+                    captureHeight: _configuration.WebcamPoseHeight,
+                    fps: _configuration.WebcamPoseFps);
+            }
 
             // Auto-detect controller plug/unplug at the OS level. HidSharp raises Changed when
             // any HID device (USB or Bluetooth-paired) is added or removed, which is exactly the

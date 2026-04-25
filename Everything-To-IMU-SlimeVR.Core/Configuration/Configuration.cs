@@ -34,6 +34,14 @@ namespace Everything_To_IMU_SlimeVR
         // different implications (VRChat usually loopback anyway).
         private bool _acceptCompanionsFromLan = false;
         private bool _acceptOscFromLan = false;
+        // Webcam pose source (Sprint H). Off by default — pipeline only spins up when the user
+        // explicitly enables it because the ONNX runtime + camera capture have meaningful CPU
+        // / GPU cost that's wasted if no one is using FBT-from-camera.
+        private bool _webcamPoseEnabled = false;
+        private int _webcamPoseDeviceIndex = 0;
+        private int _webcamPoseWidth = 1280;
+        private int _webcamPoseHeight = 720;
+        private int _webcamPoseFps = 30;
 
         public List<TrackerConfig> TrackerConfigs { get => _trackerConfigs; set => _trackerConfigs = value; }
         public List<TrackerConfig> TrackerConfigs3ds { get => _trackerConfig3ds; set => _trackerConfig3ds = value; }
@@ -59,6 +67,11 @@ namespace Everything_To_IMU_SlimeVR
         public float BatteryLowThreshold { get => _batteryLowThreshold; set => _batteryLowThreshold = Math.Clamp(value, 0.01f, 0.5f); }
         public bool AcceptCompanionsFromLan { get => _acceptCompanionsFromLan; set => _acceptCompanionsFromLan = value; }
         public bool AcceptOscFromLan { get => _acceptOscFromLan; set => _acceptOscFromLan = value; }
+        public bool WebcamPoseEnabled { get => _webcamPoseEnabled; set => _webcamPoseEnabled = value; }
+        public int WebcamPoseDeviceIndex { get => _webcamPoseDeviceIndex; set => _webcamPoseDeviceIndex = Math.Max(0, value); }
+        public int WebcamPoseWidth { get => _webcamPoseWidth; set => _webcamPoseWidth = Math.Clamp(value, 320, 4096); }
+        public int WebcamPoseHeight { get => _webcamPoseHeight; set => _webcamPoseHeight = Math.Clamp(value, 240, 2160); }
+        public int WebcamPoseFps { get => _webcamPoseFps; set => _webcamPoseFps = Math.Clamp(value, 5, 120); }
 
         public void RememberJoyCon2Address(ulong address)
         {

@@ -7,6 +7,7 @@
     <sys:String x:Key="Str.Nav.Debug">Depuración</sys:String>
     <sys:String x:Key="Str.Nav.Osc">OSC</sys:String>
     <sys:String x:Key="Str.Nav.Haptics">Hápticos</sys:String>
+    <sys:String x:Key="Str.Nav.Camera">Cámara</sys:String>
     <sys:String x:Key="Str.Nav.Settings">Ajustes</sys:String>
 
     <!-- Status bar -->

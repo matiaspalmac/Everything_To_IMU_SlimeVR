@@ -61,6 +61,11 @@
                         <ui:SymbolIcon Symbol="Pulse24" />
                     </ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Camera}" TargetPageType="{x:Type local:Views.CameraSettingsPage}">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Camera24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
                 <ui:NavigationViewItem Content="{DynamicResource Str.Nav.Settings}" TargetPageType="{x:Type local:Views.SettingsPage}">
