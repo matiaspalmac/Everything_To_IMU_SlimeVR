@@ -48,7 +48,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     macSpoof = id + "3DS_Tracker";
                     _macAddressBytes = new byte[] { (byte)macSpoof[0], (byte)macSpoof[1], (byte)macSpoof[2], (byte)macSpoof[3], (byte)macSpoof[4], (byte)macSpoof[5] };
                     udpHandler = new UDPHandler("3DS_Tracker" + id, _macAddressBytes,
-                 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED,1);
+                 FirmwareConstants.BoardType.WRANGLER, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.WRANGLER, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED,1);
                     udpHandler.Active = true;
                     _ = Recalibrate();
                     Forwarded3DSDataManager.NewPacketReceived += NewPacketReceived;

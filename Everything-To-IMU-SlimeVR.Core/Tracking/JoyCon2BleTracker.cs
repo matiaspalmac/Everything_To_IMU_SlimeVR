@@ -228,7 +228,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 var imuHint = FirmwareConstants.ImuType.UNKNOWN; // Joy-Con 2 IMU chip not publicly identified yet.
                 string firmwareString = $"0.7.2-EverythingToIMU-{_variant}";
                 _udpHandler = new UDPHandler(firmwareString, _macAddressBytes,
-                    FirmwareConstants.BoardType.CUSTOM, imuHint, FirmwareConstants.McuType.UNKNOWN,
+                    FirmwareConstants.BoardType.WRANGLER, imuHint, FirmwareConstants.McuType.WRANGLER,
                     FirmwareConstants.MagnetometerStatus.ENABLED, 1);
                 _udpHandler.Active = true;
 

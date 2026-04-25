@@ -90,7 +90,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 					_firmwareId = "Wiimote_Tracker" + _rememberedStringId;
 					_motionStateList = ForwardedWiimoteManager.Wiimotes;
 					udpHandler = new UDPHandler(_firmwareId, _macAddressBytes,
-				 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 2);
+				 FirmwareConstants.BoardType.WRANGLER, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.WRANGLER, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 2);
 					udpHandler.Active = true;
 					_ = Recalibrate();
 					ForwardedWiimoteManager.NewPacketReceived += NewPacketReceived;
