@@ -37,11 +37,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking;
 ///   Each IMU sample: accel X/Y/Z + gyro X/Y/Z, 6 × int16 LE = 12 bytes.
 ///
 /// Scaling — Switch family uses STMicro LSM6DS3-TR-C: accel ±8G at 4096 LSB/g,
-/// gyro ±2000 dps at ~16.4 LSB/dps (raw_int16 × 2000/32767 dps). JSL applies factory cal
-/// from SPI 0x6020 internally; we do NOT replicate that here because we'd diverge from
-/// JSL's calibrated stream and the same controller would produce two different IMU
-/// frames depending on which path the consumer took. Apply cal in SensorOrientation if
-/// needed; for now we expose raw/scaled values and let downstream do further processing.
+/// gyro ±2000 dps at ~16.4 LSB/dps. We apply factory SPI cal (0x6020 / user override
+/// 0x8026) per device via JoyCon1SpiCalibration before emitting samples — JSL's pipeline
+/// does the same internally on its own callback, but our HID path bypasses JSL entirely
+/// to recover the 2 dropped samples. Without cal each LSM6DS3 ships with a slightly
+/// different ZRL bias (the user-visible "ankle yaw ticks down constantly" symptom) plus
+/// ~1% sensitivity spread, both of which VQF can't fully recover from raw stream alone.
+/// If the SPI read fails (clone, busy bus) we fall back to nominal scaling and rely on
+/// the runtime GyroBiasCalibrator in SensorOrientation to converge bias.
 /// </summary>
 public static class JoyCon1HidImuReader
 {
@@ -51,12 +54,8 @@ public static class JoyCon1HidImuReader
     private const int JoyConChargingGripPid = 0x200E;
     private const int SwitchProPid = 0x2009;
 
-    // STMicro LSM6DS3 default ranges — accel ±8G, gyro ±2000 dps. Output stays in JSL's
-    // unit conventions (g and dps) so subscribers can mix our samples with JSL's without
-    // unit conversions.
-    private const float AccelScaleGPerUnit = 1f / 4096f;
-    private const float GyroScaleDpsPerUnit = 2000f / 32767f;
-
+    // Output stays in JSL's unit conventions (g and dps) so subscribers can mix our samples
+    // with JSL's without unit conversions. Per-axis scale lives in JoyCon1SpiCalibration.
     public record Sample(int JslIndex, int FrameIndex, Vector3 AccelG, Vector3 GyroDps);
 
     public static event EventHandler<Sample>? SampleReady;
@@ -143,6 +142,19 @@ public static class JoyCon1HidImuReader
         catch { maxLen = 64; }
         var report = new byte[Math.Max(maxLen, 64)];
 
+        // Read SPI factory + user cal once on attach. Done here rather than in TryStart so a
+        // 300 ms× retry deadline never blocks the JSL callback thread that calls TryStart.
+        // Falls back to nominal scaling on any failure — runtime GyroBiasCalibrator in
+        // SensorOrientation converges bias regardless.
+        int outLen;
+        try { outLen = device.GetMaxOutputReportLength(); }
+        catch { outLen = 49; }
+        var cal = JoyCon1SpiCalibration.Read(stream, device.DevicePath, outLen);
+        var accelOrigin = cal.AccelOrigin;
+        var gyroOrigin = cal.GyroOrigin;
+        var accelCoeff = cal.AccelCoeff;
+        var gyroCoeff = cal.GyroCoeff;
+
         while (!ct.IsCancellationRequested)
         {
             int len;
@@ -173,8 +185,16 @@ public static class JoyCon1HidImuReader
                 short gy = BitConverter.ToInt16(report, off + 8);
                 short gz = BitConverter.ToInt16(report, off + 10);
 
-                var accel = new Vector3(ax * AccelScaleGPerUnit, ay * AccelScaleGPerUnit, az * AccelScaleGPerUnit);
-                var gyro  = new Vector3(gx * GyroScaleDpsPerUnit, gy * GyroScaleDpsPerUnit, gz * GyroScaleDpsPerUnit);
+                // (raw - origin) * coeff per axis. coeff was pre-computed from SPI cal as
+                // 4.0 / (acc_sens - acc_origin) and 936.0 / (gyro_sens - gyro_origin) so the
+                // hot path is one subtract + one multiply per axis. Falls back to chip-spec
+                // nominal (1/4096 g, 2000/32767 dps) when cal read failed (Unknown.Valid=false).
+                var accel = new Vector3((ax - accelOrigin.X) * accelCoeff.X,
+                                        (ay - accelOrigin.Y) * accelCoeff.Y,
+                                        (az - accelOrigin.Z) * accelCoeff.Z);
+                var gyro  = new Vector3((gx - gyroOrigin.X)  * gyroCoeff.X,
+                                        (gy - gyroOrigin.Y)  * gyroCoeff.Y,
+                                        (gz - gyroOrigin.Z)  * gyroCoeff.Z);
                 try { SampleReady?.Invoke(null, new Sample(jslIndex, i, accel, gyro)); } catch { }
             }
         }

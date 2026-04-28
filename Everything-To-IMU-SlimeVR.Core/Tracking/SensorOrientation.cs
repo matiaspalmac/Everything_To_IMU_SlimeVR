@@ -28,21 +28,30 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private byte _battery;
         private VQFWrapper _vqf;
         private bool _jslStillnessEnabled;
-        // Warm-up: suppress orientation emission until VQF has had ~200ms of stationary
-        // samples to converge. Prevents the "spin on connect" where downstream sees the
-        // first wildly-wrong quaternion before the accelerometer has tilted it down.
-        // Threshold ~8.6°/s (squared in rad/s) — generous, picks up clear hand motion
-        // without false-tripping on sensor noise.
-        // 50 ms — was 200 ms, but the Sony factory bias subtraction + JSL Stillness mode
-        // applied earlier in this method already eliminate the ZRL drift that warm-up was
-        // hiding. Keep a small floor so a single noisy first sample doesn't escape.
-        private static readonly long WarmupTicksRequired = Stopwatch.Frequency / 20;
+        // Warm-up: suppress orientation emission until VQF has had stationary samples to
+        // converge. Prevents the "spin on connect" where downstream sees the first wildly-
+        // wrong quaternion before the accelerometer has tilted it down. Threshold ~8.6°/s
+        // (squared in rad/s) — generous, picks up clear hand motion without false-tripping
+        // on sensor noise.
+        //
+        // 50 ms is the floor used for Sony pads (factory cal subtracts ZRL up front) and JC2
+        // (clean BLE IMU with negligible bias). JC1 over the HID path needs the full 200 ms
+        // because SPI cal can fail on busy buses or clones — in that case GyroBiasCalibrator
+        // is the only line of defence and it needs ~1.5 s of stillness, but warming up the
+        // accel-tilt portion of VQF still benefits from the longer 200 ms gate.
+        private static readonly long WarmupTicksRequiredFast = Stopwatch.Frequency / 20;
+        private static readonly long WarmupTicksRequiredSlow = Stopwatch.Frequency / 5;
+        private long _warmupTicksRequired = WarmupTicksRequiredFast;
         private const float WarmupGyroStationaryThresholdSq = 0.0225f; // (0.15 rad/s)^2
         private long _warmupStableStartTicks = -1;
         private bool _warmupComplete = false;
         private readonly GyroBiasCalibrator _biasCal = new GyroBiasCalibrator();
         public bool GyroBiasCalibrated => _biasCal.HasBias;
         public Vector3 GyroBias => _biasCal.Bias;
+        // Single lock guarding _vqf state. HID reader thread (200 Hz) and JSL callback
+        // thread can both race on _vqf.UpdateFast / _accelerometer / _gyro under high tracker
+        // counts (4 JC1 + phone observed) — VQF's native side is not thread-safe.
+        private readonly object _vqfLock = new object();
         private JSL.EventCallback _callback;
         // Pin the one callback we register with JSL so native code never ends up with a
         // dangling function pointer if the first instance is disposed.
@@ -97,15 +106,26 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     rawAccel = new Vector3(rawAccel.X, -rawAccel.Y, -rawAccel.Z);
                     rawGyroRad = new Vector3(rawGyroRad.X, -rawGyroRad.Y, -rawGyroRad.Z);
                 }
-                _accelerometer = rawAccel;
-                _gyro = rawGyroRad;
+
+                // Online gyro bias correction. Factory cal in JoyCon1SpiCalibration handles
+                // the per-unit static ZRL but there's still a small residual + thermal drift
+                // that walks the yaw on long sessions (the "ankle ticks down constantly"
+                // symptom). _biasCal samples gyro mean during stillness and subtracts on the
+                // hot path. Sample takes accel in m/s² — JSL convention is g×10 so that's
+                // already m/s² up to a constant factor, accurate enough for the variance gate.
+                _biasCal.AddSample(rawAccel, rawGyroRad);
+                rawGyroRad = _biasCal.Correct(rawGyroRad);
+
                 // VQF was constructed at JSL's 67 Hz cadence, but we now feed it at ~200 Hz.
                 // The dt mismatch is small (~3×) and VQF's tau-based filtering tolerates it
                 // far better than skipping the 2 extra samples. A full reinit at 5 ms dt is
                 // possible but means losing the rest-bias estimate VQF has already built; the
                 // current trade favours preserving that estimate.
-                if (_vqf != null)
+                lock (_vqfLock)
                 {
+                    if (_vqf == null) return;
+                    _accelerometer = rawAccel;
+                    _gyro = rawGyroRad;
                     Update();
                 }
             }
@@ -128,6 +148,25 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     {
                         _hidImuReaderTried = true;
                         _hidImuReaderActive = JoyCon1HidImuReader.TryStart(_index);
+                        // JC1 HID path bypasses JSL's calibrated stream — SPI cal is best
+                        // effort and may fail on a busy bus or a clone. Stretch warm-up to
+                        // 200 ms so VQF's accel-tilt portion settles even on uncalibrated
+                        // input, and so GyroBiasCalibrator gets at least one stillness
+                        // window in before downstream sees the first quaternion.
+                        if (_hidImuReaderActive) _warmupTicksRequired = WarmupTicksRequiredSlow;
+                        // JSL's stillness-based bias estimator (gamepad-motion-helpers
+                        // auto-cal) was previously gated to Sony pads only — Switch family
+                        // got nothing on top of factory cal. That left every JC1 / Pro
+                        // running on whatever residual bias VQF could learn, which on long
+                        // sessions walks the yaw (the "ankle ticks down" symptom). Enabling
+                        // it for ctype 1/2/3 too is safe even when our HID path also has
+                        // GyroBiasCalibrator on top — both estimators converge to zero when
+                        // the static cal is already correct.
+                        if (!_jslStillnessEnabled)
+                        {
+                            _jslStillnessEnabled = true;
+                            try { JSL.JslSetAutomaticCalibration(_index, true); } catch { }
+                        }
                     }
                     if (_hidImuReaderActive) return;
 
@@ -179,25 +218,32 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                         }
                     }
 
-                    _accelerometer = rawAccel;
-                    _gyro = rawGyroRad;
-                    // Note: GyroBiasCalibrator + SetTauAcc(1.5) were applied earlier but caused
-                    // direction artifacts ("moving forward = tracker goes backward"). Root cause:
-                    // VQF already has internal rest-bias estimation (motionBiasEstEnabled=true by
-                    // default); adding a second bias subtractor on top fought VQF's own estimator.
-                    // tauAcc=1.5 compounded it by letting accel influence tilt too aggressively
-                    // during smooth linear motion, producing swim-like reverse drift. Reverted to
-                    // VQF defaults — they're already tuned for the common handheld case.
+                    // Online gyro bias correction. For Sony pads SonyImuCalibration already
+                    // subtracted factory ZRL above; for Switch (ctype 1/2/3) JSL applies its
+                    // own SPI cal internally before delivering this sample. _biasCal layers
+                    // an online stillness-based bias estimate on top to catch residual / thermal
+                    // drift that even factory cal can't predict. The earlier "moving forward =
+                    // tracker backward" artefact came from also tweaking SetTauAcc(1.5) which
+                    // let accel dominate tilt during linear motion; with VQF defaults left
+                    // alone, the bias subtraction is safe and converges to zero where unneeded.
+                    _biasCal.AddSample(rawAccel, rawGyroRad);
+                    rawGyroRad = _biasCal.Correct(rawGyroRad);
 
-                    if (_vqf == null) {
-                        if (averageSampleTicks.Count < 1000) {
-                            averageSampleTicks.Add(e.Item6);
+                    lock (_vqfLock)
+                    {
+                        _accelerometer = rawAccel;
+                        _gyro = rawGyroRad;
+
+                        if (_vqf == null) {
+                            if (averageSampleTicks.Count < 1000) {
+                                averageSampleTicks.Add(e.Item6);
+                            } else {
+                                _vqf = new VQFWrapper(averageSampleTicks.Average());
+                                averageSampleTicks.Clear();
+                            }
                         } else {
-                            _vqf = new VQFWrapper(averageSampleTicks.Average());
-                            averageSampleTicks.Clear();
+                            Update();
                         }
-                    } else {
-                        Update();
                     }
                 }
             } catch (Exception ex) {
@@ -230,7 +276,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                                 long now = stopwatch.ElapsedTicks;
                                 if (_gyro.LengthSquared() > WarmupGyroStationaryThresholdSq || _warmupStableStartTicks < 0) {
                                     _warmupStableStartTicks = now;
-                                } else if (now - _warmupStableStartTicks >= WarmupTicksRequired) {
+                                } else if (now - _warmupStableStartTicks >= _warmupTicksRequired) {
                                     _warmupComplete = true;
                                 }
                                 if (!_warmupComplete) break;
