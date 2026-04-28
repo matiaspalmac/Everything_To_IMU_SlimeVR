@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
 					WPAD_SetMotionPlus(i, true);
 					formatSet[i] = true;
 					motionPlusState[i] = true;
-					usleep(500000); // 100ms delay for initialization	
+					usleep(500000); // 500 ms — settles MotionPlus before first read.
 				}
 
 				u32 pressed = WPAD_ButtonsUp(i);
@@ -473,11 +473,19 @@ void send_http_post_binary(uint8_t* payload, int payload_len) {
 		}
 	}
 
-	if (net_write(persistent_sock, payload, payload_len) < 0) {
-		printf("Write failed, retrying socket...\n");
-		net_close(persistent_sock);
-		persistent_sock = -1;
-		return;
+	// TCP send loop — net_write may return fewer bytes than requested. Previously a
+	// partial write silently lost the tail of the payload (truncated 17-byte controller
+	// frames mismatched the C# parser's [Pack=1] struct and produced garbage IMU data).
+	int sent = 0;
+	while (sent < payload_len) {
+		int w = net_write(persistent_sock, payload + sent, payload_len - sent);
+		if (w <= 0) {
+			printf("Write failed, retrying socket...\n");
+			net_close(persistent_sock);
+			persistent_sock = -1;
+			return;
+		}
+		sent += w;
 	}
 
 	// Now read exactly 4 bytes of vibration data
