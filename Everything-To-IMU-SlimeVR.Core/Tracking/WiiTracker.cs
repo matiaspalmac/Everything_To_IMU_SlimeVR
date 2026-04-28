@@ -252,6 +252,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		public void Dispose() {
 			_ready = false;
 			_disconnected = true;
+			// Unsubscribe from the static NewPacketReceived event — without this every
+			// rotation through Recalibrate / disconnect cycle leaked one subscription that
+			// kept the tracker rooted forever via the manager's invocation list.
+			try { ForwardedWiimoteManager.NewPacketReceived -= NewPacketReceived; } catch { }
+			try { udpHandler?.Dispose(); } catch { }
 			_falseThighTracker?.Dispose();
 		}
 

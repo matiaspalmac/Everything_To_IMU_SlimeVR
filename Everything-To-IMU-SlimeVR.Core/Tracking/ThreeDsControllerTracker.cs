@@ -123,6 +123,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public void Dispose() {
             _ready = false;
             _disconnected = true;
+            // Unsubscribe + dispose the UDP handler so re-init or app exit can re-bind cleanly
+            // and the manager's invocation list stops growing on every rotation.
+            try { Forwarded3DSDataManager.NewPacketReceived -= NewPacketReceived; } catch { }
+            try { udpHandler?.Dispose(); } catch { }
         }
 
         public Vector3 GetCalibration() {

@@ -78,7 +78,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         // dangling function pointer if the first instance is disposed.
         private static JSL.EventCallback? _pinnedCallback;
         List<float> averageSampleTicks = new List<float>();
-        private static bool jslHandlerSet = false;
+        // 0 = not registered, 1 = registered. Interlocked CAS so two SensorOrientation ctors
+        // running in parallel during enumeration can't both pass the check and overwrite
+        // _pinnedCallback (which would let the GC collect the first delegate while JSL still
+        // held its function pointer).
+        private static int _jslHandlerSetFlag;
 
         public Quaternion CurrentOrientation { get => currentOrientation; set => currentOrientation = value; }
         public float YawRadians { get => yawRadians; set => yawRadians = value; }
@@ -99,10 +103,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             _index = index;
             _sensorType = sensorType;
             stopwatch.Start();
-            if (!jslHandlerSet) {
+            if (System.Threading.Interlocked.CompareExchange(ref _jslHandlerSetFlag, 1, 0) == 0) {
                 _callback = new JSL.EventCallback(OnControllerEvent);
                 _pinnedCallback = _callback; // keep alive for native code
-                jslHandlerSet = true;
                 JSL.JslSetCallback(_callback);
             }
             OnNewJSLData += SensorOrientation_OnNewJSLData;
@@ -278,6 +281,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             try {
                 OnNewJSLData?.Invoke(new object(), new Tuple<int, JOY_SHOCK_STATE, JOY_SHOCK_STATE, IMU_STATE, IMU_STATE, float>(deviceId, state, state2, imuState, imuState2, delta));
             } catch (Exception ex) {
+                // Native callback path — must not let an exception propagate back into JSL.
+                // Log so future regressions in subscribers actually surface instead of
+                // disappearing into the empty catch the previous version had.
+                System.Diagnostics.Debug.WriteLine($"[SensorOrientation] OnControllerEvent: {ex.Message}");
             }
         }
 

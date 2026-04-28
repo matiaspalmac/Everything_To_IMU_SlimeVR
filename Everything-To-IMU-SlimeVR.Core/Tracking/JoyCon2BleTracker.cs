@@ -467,7 +467,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 var bytes = new byte[len];
                 reader.ReadBytes(bytes);
                 _lastPacketLen = len;
+                if (GenericTrackerManager.DebugOpen)
                 {
+                    // Only build the hex dump when the debug page is actually open. Was always
+                    // running per-notify (~120 Hz) regardless, allocating a StringBuilder + a
+                    // String per frame for nobody.
                     int from = 0x10, to = Math.Min(len, 0x40);
                     var sb = new System.Text.StringBuilder((to - from) * 3);
                     for (int i = from; i < to; i++) sb.Append(bytes[i].ToString("X2")).Append(' ');
