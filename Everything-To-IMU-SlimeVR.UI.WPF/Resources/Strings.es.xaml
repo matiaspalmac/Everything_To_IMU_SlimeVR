@@ -96,9 +96,9 @@
     <sys:String x:Key="Str.Haptics.Intensity">Intensidad</sys:String>
 
     <sys:String x:Key="Str.Trackers.EmptyTitle">No se detectaron trackers</sys:String>
-    <sys:String x:Key="Str.Trackers.EmptyHint">Conectá un control o iniciá un cliente homebrew.</sys:String>
+    <sys:String x:Key="Str.Trackers.EmptyHint">Conectá un control, mantené SYNC en un Joy-Con 2, o iniciá un cliente homebrew.</sys:String>
     <sys:String x:Key="Str.Trackers.HintTitle">Cómo conectar un control</sys:String>
-    <sys:String x:Key="Str.Trackers.HintMsg">PS5 DualSense: conectá por USB o parealo por Bluetooth. Wiimote: parealo en Bluetooth de Windows como "Nintendo RVL-CNT-01". 3DS/Wii: iniciá el cliente homebrew en el dispositivo.</sys:String>
+    <sys:String x:Key="Str.Trackers.HintMsg">• PS5 DualSense / DualShock 4: conectá por USB o parealo por Bluetooth.&#xa;• Joy-Con 1 / Switch Pro: parealos en Bluetooth de Windows como "Joy-Con (L)", "Joy-Con (R)" o "Pro Controller".&#xa;• Joy-Con 2 / Switch 2 Pro / NSO GameCube 2: NO los parees desde Windows. Mantené el botón SYNC pequeño del riel — la app los detecta por advert BLE y conecta directo.&#xa;• Wiimote: parealo en Bluetooth de Windows como "Nintendo RVL-CNT-01".&#xa;• 3DS / Wii: iniciá el cliente homebrew en el dispositivo.</sys:String>
     <sys:String x:Key="Str.Trackers.OpenBluetooth">Abrir ajustes Bluetooth</sys:String>
     <sys:String x:Key="Str.Trackers.RescanDevices">Rescanear dispositivos</sys:String>
     <sys:String x:Key="Str.Trackers.YawTooltip">Yaw es la rotación sobre el eje vertical. Los IMU solos driftean con el tiempo. Usá referencia del HMD/Cintura para cancelar drift. "Confiar yaw del dispositivo" sólo si tiene magnetómetro.</sys:String>

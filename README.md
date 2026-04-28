@@ -60,10 +60,28 @@ Native dependencies (`vqf.dll`, `JoyShockLibrary.dll`) live in `Everything-To-IM
 ## Usage
 
 1. Start SlimeVR Server.
-2. Plug in or Bluetooth-pair your controller (or, for Joy-Con 2, just hold the sync button — the app discovers it via BLE advert).
+2. Connect your controller — see [Connecting controllers](#connecting-controllers) below for the right path per controller family.
 3. Launch `Everything-To-IMU-SlimeVR.exe`. The Trackers page shows every connected controller with live status (Healthy / Laggy / No IMU / Disconnected), raw IMU sample rate, jitter, and battery.
 4. The controller shows up as a tracker in the SlimeVR dashboard — assign a body part and calibrate from there.
 5. Adjust **mount rotation** in 90° increments per controller from the Selected tracker panel; the offset persists across sessions on the controller's MAC.
+
+## Connecting controllers
+
+Each controller family uses a different transport, so the pairing flow is not the same. Pick the row that matches your hardware:
+
+| Hardware | Flow |
+|---|---|
+| PS5 DualSense / DualSense Edge / DualShock 4 | Plug via USB **or** pair via Windows Bluetooth like any normal gamepad. The app picks them up the moment they appear to JoyShockLibrary. |
+| Joy-Con 1 (L / R), Joy-Con Charging Grip, Switch Pro Controller | Pair via Windows Bluetooth → "Add device" → select **Joy-Con (L)** / **Joy-Con (R)** / **Pro Controller**. They show up as standard HID gamepads. |
+| **Joy-Con 2 (L / R), Switch 2 Pro Controller, NSO GameCube 2** | **Do NOT use Windows "Add Bluetooth device".** They are BLE peripherals, not classic HID. Hold the small **SYNC** button on the rail of each controller until the LEDs scan — the app detects the BLE advert and connects directly. No Windows pairing dialog will ever appear, that is expected. If a controller does not show up, click **Rescan devices** on the Trackers page (or open the app *after* pressing SYNC). |
+| Wiimote / Wiimote + MotionPlus | Pair in Windows Bluetooth as **Nintendo RVL-CNT-01** (hold 1+2 to enter pairing). Some Wiimotes need an external dongle; the built-in Win 11 stack works for most. |
+| Nintendo 3DS | Run the [3DSClient](Companions/3DSClient) homebrew on the device — it pushes IMU over UDP. The PC and 3DS need to be on the same LAN. |
+| Wii (with homebrew) | Run [WiiClient](Companions/WiiClient) on the Wii. Same LAN requirement. |
+
+Joy-Con 2 trivia worth knowing:
+- Switch 2 controllers only advertise immediately after SYNC or power-on. If a JC2 disconnects mid-session and stops advertising, the app's 10 s reconnect loop attempts a direct GATT connect on the last known address — usually it picks back up without needing another SYNC press.
+- The first attach is the slow one (~1 s); reconnects are quick.
+- 5 GHz Wi-Fi on the same machine can crowd 2.4 GHz BLE; if you see <60 Hz IMU rates with multiple JC2s, switch the router or PC adapter to 5 GHz only or move the dongle a couple of feet away from the Wi-Fi card.
 
 ## Project layout
 
@@ -76,9 +94,11 @@ Native dependencies (`vqf.dll`, `JoyShockLibrary.dll`) live in `Everything-To-IM
 ## Tracking quality features
 
 - Sony factory calibration (DualShock 4 / DualSense): per-unit gyro bias + per-axis sensitivity + accel bias from HID feature reports 0x05 / 0x02. JSL doesn't apply these for Sony controllers, only Switch family.
-- JSL Stillness mode (`JslSetAutomaticCalibration`): runtime gyro bias estimator that runs alongside our static factory cal.
+- Joy-Con 1 / Switch Pro factory calibration: SPI flash 0x6020 (factory) and 0x8026 (user override, magic 0xB2 0xA1) parsed via subcommand 0x10 over the shared HID stream. Replicates JSL's internal cal on our parallel HID reader path so per-unit gyro bias + sensitivity matches the Switch firmware.
+- JSL Stillness mode (`JslSetAutomaticCalibration`): runtime gyro bias estimator. Enabled for both Sony pads and the Switch family (previously Sony-only).
+- Online gyro bias estimator (`GyroBiasCalibrator`): stillness-detected residual bias subtraction layered on top of factory cal — catches thermal drift and chips with degraded factory cal.
 - VQF v2.1.1 with rest-detection bug fix (Feb 2026 upstream).
-- 50 ms warm-up gate (down from 200 ms) thanks to factory cal eliminating the ZRL drift window.
+- Adaptive warm-up: 50 ms for Sony pads and Joy-Con 2 (clean factory cal up front) and 200 ms for Joy-Con 1 over the HID path (lets VQF tilt and the first stillness window land before downstream consumes a quaternion).
 - Mount rotation persisted per MAC.
 - Per-MAC gyro scale trim slider (Joy-Con 2 only — JSL devices already have factory cal).
 - Magnetometer fusion (9DoF VQF) for Joy-Con 2 with Earth-field magnitude validation.
