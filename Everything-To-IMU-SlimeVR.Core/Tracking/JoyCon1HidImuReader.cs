@@ -77,6 +77,14 @@ public static class JoyCon1HidImuReader
     /// <summary>"factory-spi", "user-spi", "nominal-fallback", or "—" when no reader attached.</summary>
     public static string CalStatusFor(int jslIndex) => _calStatus.TryGetValue(jslIndex, out var s) ? s : "—";
 
+    // Battery byte 2 of report 0x30 carries the same level info HidBatteryReader scrapes
+    // via a separate HID handle every 30 s. When this reader is active we surface the byte
+    // so callers can avoid opening a second handle to the same Joy-Con — three concurrent
+    // handles (JSL + this reader + HidBatteryReader) put real pressure on Bluetooth stacks
+    // when 4× JC1 are paired together. Float fraction in 0..1, null when no reader yet.
+    private static readonly ConcurrentDictionary<int, float> _battery = new();
+    public static float? CachedBatteryFor(int jslIndex) => _battery.TryGetValue(jslIndex, out var f) ? f : (float?)null;
+
     /// <summary>
     /// Try to attach a HID reader thread to the Nth Switch-family device. Returns false if
     /// already attached, no matching device, or HID open failed (e.g. exclusive lock).
@@ -131,6 +139,7 @@ public static class JoyCon1HidImuReader
     {
         if (!_workers.TryRemove(jslIndex, out var w)) return;
         _calStatus.TryRemove(jslIndex, out _);
+        _battery.TryRemove(jslIndex, out _);
         try { w.Cts.Cancel(); } catch { }
         try { w.Stream.Dispose(); } catch { }
     }
@@ -189,6 +198,17 @@ public static class JoyCon1HidImuReader
                 break;
             }
             if (len < 49 || report[0] != 0x30) continue;
+
+            // Battery byte 2 high nibble: 8=full, 6=75, 4=50, 2=25, 0=critical, +1 = charging.
+            // Surface a fraction so HidBatteryReader can skip the per-30 s second-handle open
+            // for Nintendo devices entirely.
+            int rawBatt = (report[2] >> 4) & 0x0F;
+            bool charging = (rawBatt & 0x01) != 0;
+            int level = rawBatt & 0xE;
+            float fraction = charging ? 1f : level switch {
+                >= 8 => 1f, 6 => 0.75f, 4 => 0.5f, 2 => 0.25f, _ => 0.05f,
+            };
+            _battery[jslIndex] = fraction;
 
             // Three IMU samples at offsets 13/25/37, each 12 bytes.
             for (int i = 0; i < 3; i++)

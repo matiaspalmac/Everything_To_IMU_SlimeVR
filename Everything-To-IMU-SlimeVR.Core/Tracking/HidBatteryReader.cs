@@ -34,6 +34,16 @@ public static class HidBatteryReader
     /// </summary>
     public static float? GetBatteryFraction(int controllerIndex)
     {
+        // Fast path for Nintendo controllers: when JoyCon1HidImuReader is attached it
+        // already parses battery byte 2 of every IMU packet, so we can skip opening a
+        // second HID handle. With 4× JC1 paired the per-30s open cycle was contributing
+        // real BT stack pressure on top of JSL's existing handle.
+        if (JoyCon1HidImuReader.IsActiveFor(controllerIndex))
+        {
+            var cached = JoyCon1HidImuReader.CachedBatteryFor(controllerIndex);
+            if (cached.HasValue) return cached;
+        }
+
         lock (_lock)
         {
             try
