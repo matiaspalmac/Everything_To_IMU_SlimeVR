@@ -82,11 +82,23 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         }
 
         public static void Stop() {
+            // Wait for any reconnect-timer callback already in flight before clearing the
+            // tracker list. Without this, a TryReconnectKnown firing concurrently with Stop
+            // could complete its ConnectAsync after we've cleared _trackers and re-add a
+            // tracker into an empty list — that tracker then never gets disposed because
+            // the next Stop invocation finds it still in _trackers but not in _recentAttempts.
+            System.Threading.Timer? timerToDispose = null;
             lock (_lock) {
                 try { _watcher?.Stop(); } catch { }
                 _watcher = null;
-                try { _reconnectTimer?.Dispose(); } catch { }
+                timerToDispose = _reconnectTimer;
                 _reconnectTimer = null;
+            }
+            if (timerToDispose != null) {
+                using var done = new System.Threading.ManualResetEvent(false);
+                try { timerToDispose.Dispose(done); done.WaitOne(TimeSpan.FromSeconds(2)); } catch { }
+            }
+            lock (_lock) {
                 foreach (var t in _trackers) {
                     try { t.Dispose(); } catch { }
                 }
@@ -152,12 +164,17 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             if (!match) return;
 
             ulong addr = args.BluetoothAddress;
-            // Reject during cooldown OR if we've already got a live tracker for this device.
-            if (_recentAttempts.TryGetValue(addr, out var last) && DateTime.UtcNow - last < ReconnectCooldown) return;
+            // Atomic claim of the cooldown slot — previously the read of _recentAttempts and
+            // the write a few lines later raced against another advert callback for the same
+            // address. Both could pass the cooldown gate, both ConnectAsync ran in parallel,
+            // and a duplicate JoyCon2BleTracker landed for one physical device (registering
+            // two UDP handlers to SlimeVR for the same MAC). One lock now covers cooldown
+            // check + tracker-existence check + slot reservation.
             lock (_lock) {
+                if (_recentAttempts.TryGetValue(addr, out var last) && DateTime.UtcNow - last < ReconnectCooldown) return;
                 if (_trackers.Any(t => t.BluetoothAddress == addr && !t.Disconnected)) return;
+                _recentAttempts[addr] = DateTime.UtcNow;
             }
-            _recentAttempts[addr] = DateTime.UtcNow;
 
             _ = ConnectAsync(addr, variant);
         }

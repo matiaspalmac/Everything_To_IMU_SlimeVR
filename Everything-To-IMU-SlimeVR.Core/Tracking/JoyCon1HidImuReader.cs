@@ -142,6 +142,13 @@ public static class JoyCon1HidImuReader
         _battery.TryRemove(jslIndex, out _);
         try { w.Cts.Cancel(); } catch { }
         try { w.Stream.Dispose(); } catch { }
+        // Wait briefly for the reader thread to drain. Without this, an in-flight
+        // SampleReady?.Invoke after Stop returned could fire one more sample with stale
+        // calibration into a SensorOrientation that already unsubscribed — usually safe
+        // (handler catch-all swallows) but the join keeps the lifecycle deterministic.
+        // 200 ms covers the worst-case ReadTimeout we set on the stream; if the thread
+        // is wedged we give up rather than hang the caller.
+        try { w.Thread.Join(200); } catch { }
     }
 
     public static void StopAll()

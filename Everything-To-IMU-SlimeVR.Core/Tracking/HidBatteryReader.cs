@@ -44,52 +44,55 @@ public static class HidBatteryReader
             if (cached.HasValue) return cached;
         }
 
-        lock (_lock)
+        try
         {
-            try
+            // Enumerate outside the lock — same reasoning as SonyImuCalibration: holding a
+            // global mutex while running HID I/O with a 500 ms timeout serialised every
+            // tracker's battery read behind every other tracker's, adding pointless latency
+            // on startup with 4 controllers attached.
+            var all = DeviceList.Local.GetHidDevices()
+                .Where(d => d.VendorID == SonyVid || d.VendorID == NintendoVid)
+                .Where(d =>
+                    d.ProductID == DualSensePid ||
+                    d.ProductID == DualShock4Pid || d.ProductID == DualShock4Pid2 ||
+                    d.ProductID == JoyconLPid || d.ProductID == JoyconRPid ||
+                    d.ProductID == ProControllerPid)
+                // Deduplicate: some devices expose multiple HID interfaces; pick main input.
+                .GroupBy(d => d.DevicePath.Split('#').Take(3).Aggregate((a, b) => a + "#" + b))
+                .Select(g => g.First())
+                .ToList();
+
+            if (controllerIndex < 0 || controllerIndex >= all.Count) return null;
+
+            var device = all[controllerIndex];
+            var key = device.DevicePath;
+
+            lock (_lock)
             {
-                // Enumerate HID devices in Sony + Nintendo VID range, any supported PID.
-                var all = DeviceList.Local.GetHidDevices()
-                    .Where(d => d.VendorID == SonyVid || d.VendorID == NintendoVid)
-                    .Where(d =>
-                        d.ProductID == DualSensePid ||
-                        d.ProductID == DualShock4Pid || d.ProductID == DualShock4Pid2 ||
-                        d.ProductID == JoyconLPid || d.ProductID == JoyconRPid ||
-                        d.ProductID == ProControllerPid)
-                    // Deduplicate: some devices expose multiple HID interfaces; pick main input.
-                    .GroupBy(d => d.DevicePath.Split('#').Take(3).Aggregate((a, b) => a + "#" + b))
-                    .Select(g => g.First())
-                    .ToList();
-
-                if (controllerIndex < 0 || controllerIndex >= all.Count) return null;
-
-                var device = all[controllerIndex];
-                var key = device.DevicePath;
-
                 if (_cache.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.At < _cacheTtl)
                     return cached.Fraction;
-
-                float? fraction = null;
-                try
-                {
-                    using var stream = device.Open();
-                    stream.ReadTimeout = 500;
-                    var report = new byte[device.GetMaxInputReportLength()];
-                    int len = stream.Read(report);
-                    fraction = Parse(device, report, len);
-                }
-                catch { /* device may be locked exclusive, skip */ }
-
-                if (fraction is float f)
-                {
-                    _cache[key] = new CachedReading(f, DateTime.UtcNow);
-                }
-                return fraction;
             }
-            catch
+
+            float? fraction = null;
+            try
             {
-                return null;
+                using var stream = device.Open();
+                stream.ReadTimeout = 500;
+                var report = new byte[device.GetMaxInputReportLength()];
+                int len = stream.Read(report);
+                fraction = Parse(device, report, len);
             }
+            catch { /* device may be locked exclusive, skip */ }
+
+            if (fraction is float f)
+            {
+                lock (_lock) { _cache[key] = new CachedReading(f, DateTime.UtcNow); }
+            }
+            return fraction;
+        }
+        catch
+        {
+            return null;
         }
     }
 
