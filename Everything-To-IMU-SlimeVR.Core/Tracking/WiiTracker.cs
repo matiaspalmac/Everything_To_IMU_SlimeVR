@@ -102,8 +102,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		}
 
 		private async void NewPacketReceived(object reference, string ip) {
-			if (_wiimoteClient == ip) {
-				await Update();
+			// async void event handler: any unhandled exception past the await would tear
+			// down the whole process. Wrap and route through OnTrackerError so the BLE /
+			// network stack glitches that show up as ObjectDisposedException after Dispose
+			// don't kill the app for every connected tracker.
+			try {
+				if (_wiimoteClient == ip) {
+					await Update();
+				}
+			} catch (Exception ex) {
+				try { OnTrackerError?.Invoke(this, ex.Message); } catch { }
 			}
 		}
 
@@ -121,6 +129,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 						}
 					} else if (!_isAlreadyUpdating) {
 						_isAlreadyUpdating = true;
+						try {
 						var hmdHeight = OpenVRReader.GetHMDHeight();
 						var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
 						float trackerEuler = trackerRotation.GetYawFromQuaternion();
@@ -202,7 +211,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 								_previousNunchuckAccelValue = shortVector;
 							}
 						}
-						_isAlreadyUpdating = false;
+						} finally {
+							// Always reset under finally — exception between flag set and clear
+							// previously left the tracker silently frozen forever.
+							_isAlreadyUpdating = false;
+						}
 					}
 				} catch (Exception e) {
 					OnTrackerError?.Invoke(this, e.StackTrace + "\r\n" + e.Message);
