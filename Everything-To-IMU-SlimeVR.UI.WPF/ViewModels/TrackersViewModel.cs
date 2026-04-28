@@ -8,9 +8,17 @@ using static Everything_To_IMU_SlimeVR.TrackerConfig;
 
 namespace Everything_To_IMU_SlimeVR.UI.ViewModels;
 
-public partial class TrackersViewModel : ObservableObject
+public partial class TrackersViewModel : ObservableObject, IDisposable
 {
     private readonly DispatcherTimer _refreshTimer;
+    // WPF Page instances stay in the navigation journal — `<vm:TrackersViewModel/>` in the
+    // page XAML constructs a fresh VM per visit, but Unload alone won't tear it down. Each
+    // navigate-back used to leak one 800 ms timer firing forever against an orphaned VM.
+    // TrackersPage.OnUnloaded calls Dispose so the timer actually stops.
+    public void Dispose()
+    {
+        try { _refreshTimer.Stop(); } catch { }
+    }
 
     public ObservableCollection<TrackerRow> Trackers { get; } = new();
 

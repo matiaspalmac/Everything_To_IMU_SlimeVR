@@ -28,6 +28,9 @@ public partial class MainWindow : FluentWindow
             try { AppServices.Instance.BatteryLowAlert -= OnBatteryLow; } catch { }
             try { AppServices.Instance.TrackerConnected -= OnTrackerConnected; } catch { }
             try { AppServices.Instance.TrackerDisconnected -= OnTrackerDisconnected; } catch { }
+            // Stop background probes on the VM so they don't tick into AppServices.Shutdown's
+            // config flush (and so the next time the window is recreated we start clean).
+            try { (DataContext as ViewModels.MainWindowViewModel)?.StopBackgroundWork(); } catch { }
         };
     }
 

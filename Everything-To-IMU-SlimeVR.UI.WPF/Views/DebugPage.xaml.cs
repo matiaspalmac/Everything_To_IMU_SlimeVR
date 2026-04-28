@@ -44,6 +44,11 @@ public partial class DebugPage : Page
         {
             _vm.SampleReady -= OnSample;
             _vm.ClearRequested -= OnClear;
+            // Stop the VM's 50 ms refresh timer too — without this every navigate-away
+            // leaked one DispatcherTimer firing forever against an orphaned VM. The page
+            // construction creates a fresh DebugViewModel each visit, so disposal here
+            // is symmetric with construction in the XAML.
+            (_vm as IDisposable)?.Dispose();
         }
         _renderTimer?.Stop();
         _renderTimer = null;

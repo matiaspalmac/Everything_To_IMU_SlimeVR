@@ -44,6 +44,22 @@ public partial class App : Application
                 var log = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
                 File.AppendAllText(log, $"[{DateTime.UtcNow:O}] DispatcherException: {ev.Exception}{Environment.NewLine}");
                 ev.Handled = true;
+                // First time per session, surface a non-blocking toast so the user knows
+                // their UI hit something unexpected and can grab crash.log. Previously we
+                // logged silently and the user saw "everything looks fine" until the next
+                // weirdness compounded.
+                if (!_unhandledNotified)
+                {
+                    _unhandledNotified = true;
+                    try
+                    {
+                        MessageBox.Show(
+                            "An unexpected error was logged to crash.log. The app will keep running, " +
+                            "but please share that file if you hit any further issues.",
+                            "Unexpected error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    catch { }
+                }
             }
             catch { }
         };
@@ -74,6 +90,9 @@ public partial class App : Application
 
     private const string UpdateManifestUrl = "https://raw.githubusercontent.com/matiaspalmac/Everything_To_IMU_SlimeVR/main/update.xml";
     private static string? _expectedChecksumSha256;
+    // One-shot flag so the dispatcher exception toast doesn't fire repeatedly if the same
+    // bug spams a hot path.
+    private static bool _unhandledNotified;
 
     private static void TryStartAutoUpdater()
     {

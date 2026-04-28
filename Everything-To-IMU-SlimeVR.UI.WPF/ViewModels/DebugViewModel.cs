@@ -7,9 +7,15 @@ using Everything_To_IMU_SlimeVR.UI.Services;
 
 namespace Everything_To_IMU_SlimeVR.UI.ViewModels;
 
-public partial class DebugViewModel : ObservableObject
+public partial class DebugViewModel : ObservableObject, IDisposable
 {
     private readonly DispatcherTimer _timer;
+    // See TrackersViewModel for rationale — DebugPage.OnUnloaded disposes us so the 50 ms
+    // refresh timer doesn't keep firing against an orphaned VM after navigation.
+    public void Dispose()
+    {
+        try { _timer.Stop(); } catch { }
+    }
 
     public ObservableCollection<IBodyTracker> AvailableTrackers { get; } = new();
 
