@@ -68,11 +68,34 @@ namespace Everything_To_IMU_SlimeVR
             try { SaveDebounced(); } catch { }
         }
 
+        [JsonIgnore] private readonly object _saveLock = new();
+
         public void SaveConfig()
         {
-            _lastConfigSave = DateTime.UtcNow;
-            string savePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-            File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+            // Serialize against simultaneous saves AND retry on collection-modified-during-
+            // enumeration. UI thread can mutate _controllerMounts / _calibrationConfigurations
+            // while the serializer walks them; Newtonsoft throws InvalidOperationException
+            // on that race. Snapshot under the save lock with a defensive copy so the
+            // serializer iterates a private list, not the live one.
+            lock (_saveLock)
+            {
+                _lastConfigSave = DateTime.UtcNow;
+                string savePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    try
+                    {
+                        File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+                        return;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Mid-mutation race — back off briefly and retry. After 3 attempts
+                        // we give up and let the next SaveDebounced try again.
+                        System.Threading.Thread.Sleep(50);
+                    }
+                }
+            }
         }
 
         // Debounce interval — slider drags, rapid clicks coalesce into one write. Max data loss
@@ -92,9 +115,13 @@ namespace Everything_To_IMU_SlimeVR
             {
                 if (_saveDebounceTimer == null)
                 {
+                    // Timer fires SaveConfig directly. The previous implementation called
+                    // SaveDebounced from the timer callback, which re-armed the timer instead
+                    // of writing — so mount yaw, gyro trim, and JoyCon2KnownAddresses never
+                    // persisted across sessions despite the README promising they did.
                     _saveDebounceTimer = new System.Threading.Timer(_ =>
                     {
-                        try { SaveDebounced(); } catch { }
+                        try { SaveConfig(); } catch { }
                     });
                 }
                 _saveDebounceTimer.Change(SaveDebounceMs, System.Threading.Timeout.Infinite);
@@ -108,9 +135,12 @@ namespace Everything_To_IMU_SlimeVR
         {
             lock (_saveDebounceLock)
             {
+                // Cancel the pending timer so it can't race the synchronous save below and
+                // overwrite the file we just wrote with the same content (or worse, with a
+                // partially-mutated dictionary if a UI write lands between here and SaveConfig).
                 _saveDebounceTimer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             }
-            try { SaveDebounced(); } catch { }
+            try { SaveConfig(); } catch { }
         }
         public TimeSpan TimeSinceLastConfig()
         {
@@ -185,6 +215,7 @@ namespace Everything_To_IMU_SlimeVR
                 } catch
                 {
                 }
+                if (values != null) HealNullCollections(values);
                 Instance = values;
                 return Instance = (values == null ? new Configuration()
                 {
@@ -201,6 +232,26 @@ namespace Everything_To_IMU_SlimeVR
                     }
                 };
             }
+        }
+
+        /// <summary>
+        /// Newtonsoft will happily produce a Configuration with null collections when the
+        /// user hand-edits config.json and breaks one field, or when an older schema is
+        /// missing entries we added later. The first downstream Add/TryGetValue then NREs
+        /// before we reach any UI. Re-init every collection field that came back null so
+        /// the rest of the app never has to null-check.
+        /// </summary>
+        private static void HealNullCollections(Configuration v)
+        {
+            v._trackerConfigs ??= new();
+            v._trackerConfig3ds ??= new();
+            v._trackerConfigWiimote ??= new();
+            v._trackerConfigNunchuck ??= new();
+            v._trackerConfigUdpHaptics ??= new();
+            v._calibrationConfigurations ??= new();
+            v._controllerMounts ??= new();
+            v._portOutputs ??= new();
+            v._joyCon2KnownAddresses ??= new();
         }
     }
 }

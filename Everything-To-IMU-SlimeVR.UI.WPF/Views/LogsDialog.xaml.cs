@@ -37,10 +37,25 @@ public partial class LogsDialog : FluentWindow
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var sr = new StreamReader(fs);
-            var content = sr.ReadToEnd();
-            // Keep to last ~200 KB to avoid UI freeze on huge logs.
-            if (content.Length > 200_000) content = "... (truncated to last 200 KB)\n" + content[^200_000..];
+            // Seek to the last 200 KB instead of reading the whole file then trimming. A 2 GB
+            // log hand-loaded into memory froze the dialog (and pressured GC for the rest of
+            // the session). Seek-from-end keeps memory and load time bounded regardless of
+            // log size.
+            const long TailBytes = 200_000;
+            string content;
+            if (fs.Length > TailBytes)
+            {
+                fs.Seek(-TailBytes, SeekOrigin.End);
+                using var sr = new StreamReader(fs);
+                // Drop the partial first line — we likely landed mid-character.
+                _ = sr.ReadLine();
+                content = "... (truncated to last 200 KB)\n" + sr.ReadToEnd();
+            }
+            else
+            {
+                using var sr = new StreamReader(fs);
+                content = sr.ReadToEnd();
+            }
             LogText.Text = content;
         }
         catch (Exception ex)

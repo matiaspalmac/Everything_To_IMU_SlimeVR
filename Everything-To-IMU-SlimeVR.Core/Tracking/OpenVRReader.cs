@@ -17,36 +17,50 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private static Stopwatch _stopwatch  = new Stopwatch();
         private static Stopwatch _steamVRCheckCooldown = new Stopwatch();
         private static bool _steamVRWasDetected;
+        // Single lock guarding _vrSystem init and the _poseArray/_stopwatch refresh window.
+        // Every tracker thread (4× JC1 + JC2 + Sony) calls into here per-sample to fetch
+        // HMD/waist yaw, so the previous unsynchronised double-checked init pattern raced
+        // OpenVR.Init across multiple threads (which the OpenVR API does NOT support — a
+        // second concurrent Init while the first is in flight returns the same handle but
+        // can corrupt internal state on some runtime versions).
+        private static readonly object _vrLock = new object();
 
         public static Stopwatch Stopwatch { get => _stopwatch; set => _stopwatch = value; }
 
-        public static Quaternion GetHMDRotation() {
-            TrackedDevicePose_t[] trackedDevices = new TrackedDevicePose_t[1] { new TrackedDevicePose_t() };
-            if (_vrSystem == null && IsSteamVRRunning()) {
+        /// <summary>
+        /// Idempotent init — every public entry point goes through this so OpenVR.Init runs
+        /// at most once even when 8 trackers race here on the same tick.
+        /// </summary>
+        private static CVRSystem? EnsureVrSystem() {
+            if (_vrSystem != null) return _vrSystem;
+            if (!IsSteamVRRunning()) return null;
+            lock (_vrLock) {
+                if (_vrSystem != null) return _vrSystem;
                 try {
                     var err = EVRInitError.None;
                     _vrSystem = OpenVR.Init(ref err, EVRApplicationType.VRApplication_Utility);
-                } catch {
-
-                }
+                } catch { /* SteamVR transitioning — try again next call */ }
+                return _vrSystem;
             }
-            if (_vrSystem != null) {
-                _vrSystem.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, trackedDevices);
+        }
+
+        public static Quaternion GetHMDRotation() {
+            TrackedDevicePose_t[] trackedDevices = new TrackedDevicePose_t[1] { new TrackedDevicePose_t() };
+            var vr = EnsureVrSystem();
+            if (vr != null) {
+                lock (_vrLock) {
+                    vr.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, trackedDevices);
+                }
             }
             return Quaternion.CreateFromRotationMatrix(trackedDevices[0].mDeviceToAbsoluteTracking.ToMatrix4x4());
         }
         public static float GetHMDHeight() {
             TrackedDevicePose_t[] trackedDevices = new TrackedDevicePose_t[1] { new TrackedDevicePose_t() };
-            if (_vrSystem == null && IsSteamVRRunning()) {
-                try {
-                    var err = EVRInitError.None;
-                    _vrSystem = OpenVR.Init(ref err, EVRApplicationType.VRApplication_Utility);
-                } catch {
-
+            var vr = EnsureVrSystem();
+            if (vr != null) {
+                lock (_vrLock) {
+                    vr.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, trackedDevices);
                 }
-            }
-            if (_vrSystem != null) {
-                _vrSystem.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, trackedDevices);
                 return trackedDevices[0].mDeviceToAbsoluteTracking.m7;
             } else {
                 return 1.5f;
@@ -70,18 +84,12 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
         public static Vector3 GetHMDPosition() {
             TrackedDevicePose_t[] trackedDevices = new TrackedDevicePose_t[1] { new TrackedDevicePose_t() };
-            if (_vrSystem == null && IsSteamVRRunning()) {
-                try {
-                    var err = EVRInitError.None;
-                    _vrSystem = OpenVR.Init(ref err, EVRApplicationType.VRApplication_Utility);
-                } catch {
-
+            var vr = EnsureVrSystem();
+            if (vr != null) {
+                lock (_vrLock) {
+                    vr.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseRawAndUncalibrated, 0, trackedDevices);
                 }
-            }
-            if (_vrSystem != null) {
-                _vrSystem.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseRawAndUncalibrated, 0, trackedDevices);
                 return trackedDevices[0].mDeviceToAbsoluteTracking.ToMatrix4x4().Translation;
-
             } else {
                 return new Vector3();
             }
@@ -163,17 +171,24 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         }
 
         private static Quaternion GetTrackingPose(uint index) {
-            // Get the device pose (position and rotation)
-            if (_poseArray == null || _stopwatch.ElapsedMilliseconds > 4) {
-                var poseArray = new TrackedDevicePose_t[20];
-                OpenVR.System.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, poseArray);
-                _trackerMatrixes[index] = poseArray[index].mDeviceToAbsoluteTracking.ToMatrix4x4();
-                _stopwatch.Restart();
-                _poseArray = poseArray;
+            // Refresh window — coalesces 4 ms of concurrent reads into a single OpenVR poll
+            // and a single _trackerMatrixes update. Lock guards _poseArray / _stopwatch /
+            // _trackerMatrixes[index] so concurrent tracker threads can't both decide to
+            // refresh and double-write the matrix dictionary entry.
+            lock (_vrLock) {
+                if (_poseArray == null || _stopwatch.ElapsedMilliseconds > 4) {
+                    var poseArray = new TrackedDevicePose_t[20];
+                    OpenVR.System.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseStanding, 0, poseArray);
+                    if (index < poseArray.Length) {
+                        _trackerMatrixes[index] = poseArray[index].mDeviceToAbsoluteTracking.ToMatrix4x4();
+                    }
+                    _stopwatch.Restart();
+                    _poseArray = poseArray;
+                }
             }
-            // Process the pose data (position/rotation) for the waist tracker
-            // Console.WriteLine($"Waist Tracker Position: {pose.mDeviceToAbsoluteTracking.m0}, {pose.mDeviceToAbsoluteTracking.m1}, {pose.mDeviceToAbsoluteTracking.m2}");
-            return Quaternion.CreateFromRotationMatrix(_trackerMatrixes[index]);
+            return _trackerMatrixes.TryGetValue(index, out var m)
+                ? Quaternion.CreateFromRotationMatrix(m)
+                : Quaternion.Identity;
         }
 
         private static bool IsDesiredTracker(uint deviceIndex, string trackerType) {

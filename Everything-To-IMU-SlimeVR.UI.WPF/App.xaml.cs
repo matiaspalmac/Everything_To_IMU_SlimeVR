@@ -44,6 +44,22 @@ public partial class App : Application
                 var log = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
                 File.AppendAllText(log, $"[{DateTime.UtcNow:O}] DispatcherException: {ev.Exception}{Environment.NewLine}");
                 ev.Handled = true;
+                // First time per session, surface a non-blocking toast so the user knows
+                // their UI hit something unexpected and can grab crash.log. Previously we
+                // logged silently and the user saw "everything looks fine" until the next
+                // weirdness compounded.
+                if (!_unhandledNotified)
+                {
+                    _unhandledNotified = true;
+                    try
+                    {
+                        MessageBox.Show(
+                            "An unexpected error was logged to crash.log. The app will keep running, " +
+                            "but please share that file if you hit any further issues.",
+                            "Unexpected error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    catch { }
+                }
             }
             catch { }
         };
@@ -74,6 +90,9 @@ public partial class App : Application
 
     private const string UpdateManifestUrl = "https://raw.githubusercontent.com/matiaspalmac/Everything_To_IMU_SlimeVR/main/update.xml";
     private static string? _expectedChecksumSha256;
+    // One-shot flag so the dispatcher exception toast doesn't fire repeatedly if the same
+    // bug spams a hot path.
+    private static bool _unhandledNotified;
 
     private static void TryStartAutoUpdater()
     {
@@ -85,8 +104,13 @@ public partial class App : Application
             AutoUpdater.UpdateMode = Mode.Normal;
             // Parse <checksum> field ourselves (AutoUpdater.NET does not handle non-standard
             // children). Stored for use by ApplicationExitEvent hook that runs after download
-            // completes and before the package replaces the running exe.
-            _expectedChecksumSha256 = TryFetchExpectedChecksum(UpdateManifestUrl);
+            // completes and before the package replaces the running exe. Run on the
+            // threadpool — the previous synchronous fetch on the UI thread blocked the
+            // splash for up to 10 s on slow / hijacked DNS.
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                _expectedChecksumSha256 = TryFetchExpectedChecksum(UpdateManifestUrl);
+            });
             AutoUpdater.ApplicationExitEvent += VerifyDownloadedZip;
             AutoUpdater.Start(UpdateManifestUrl);
         }
@@ -125,7 +149,7 @@ public partial class App : Application
             if (string.IsNullOrWhiteSpace(_expectedChecksumSha256))
             {
                 LogUpdate("Checksum missing from update.xml — skipping verification (insecure). " +
-                          "This will be treated as a fatal error starting with v0.3.0.");
+                          "This will be treated as a fatal error in a future release.");
                 return;
             }
             var candidates = Directory.EnumerateFiles(AppDomain.CurrentDomain.BaseDirectory, "Everything-To-IMU-SlimeVR-*.zip")

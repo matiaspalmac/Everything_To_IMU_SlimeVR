@@ -20,6 +20,18 @@ public partial class MainWindow : FluentWindow
         AppServices.Instance.BatteryLowAlert += OnBatteryLow;
         AppServices.Instance.TrackerConnected += OnTrackerConnected;
         AppServices.Instance.TrackerDisconnected += OnTrackerDisconnected;
+        // AppServices is process-lifetime — without explicit unsubscribe, every recreated
+        // window stays rooted forever via its invocation list. Closed fires on real shutdown
+        // (TrayExit forces _forceExit then Close), at which point we no longer want toasts.
+        Closed += (_, _) =>
+        {
+            try { AppServices.Instance.BatteryLowAlert -= OnBatteryLow; } catch { }
+            try { AppServices.Instance.TrackerConnected -= OnTrackerConnected; } catch { }
+            try { AppServices.Instance.TrackerDisconnected -= OnTrackerDisconnected; } catch { }
+            // Stop background probes on the VM so they don't tick into AppServices.Shutdown's
+            // config flush (and so the next time the window is recreated we start clean).
+            try { (DataContext as ViewModels.MainWindowViewModel)?.StopBackgroundWork(); } catch { }
+        };
     }
 
     private static bool NotificationsOn() =>

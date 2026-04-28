@@ -1,2 +1,6 @@
-# Enter Local PC IP Address Here
-server_ip=0.0.0.0
+# Local PC IP address that the Wii will stream IMU packets to.
+# REQUIRED — replace the placeholder below with your PC's LAN IP, e.g.:
+#   server_ip=192.168.1.42
+# Leaving this as 0.0.0.0 means the Wii will not be able to reach any host.
+server_ip=
+server_port=9909

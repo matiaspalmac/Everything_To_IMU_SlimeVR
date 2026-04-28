@@ -48,7 +48,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     macSpoof = id + "3DS_Tracker";
                     _macAddressBytes = new byte[] { (byte)macSpoof[0], (byte)macSpoof[1], (byte)macSpoof[2], (byte)macSpoof[3], (byte)macSpoof[4], (byte)macSpoof[5] };
                     udpHandler = new UDPHandler("3DS_Tracker" + id, _macAddressBytes,
-                 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED,1);
+                 FirmwareConstants.BoardType.WRANGLER, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.WRANGLER, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED,1);
                     udpHandler.Active = true;
                     _ = Recalibrate();
                     Forwarded3DSDataManager.NewPacketReceived += NewPacketReceived;
@@ -60,8 +60,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         }
 
         private async void NewPacketReceived(object reference, string ip) {
-            if (_ip == ip) {
-                await Update();
+            // async void event handler — see WiiTracker for rationale. Unhandled exception
+            // past the await otherwise tears down the process.
+            try {
+                if (_ip == ip) {
+                    await Update();
+                }
+            } catch (Exception ex) {
+                try { OnTrackerError?.Invoke(this, ex.Message); } catch { }
             }
         }
 
@@ -102,9 +108,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public async Task Recalibrate() {
             await Task.Delay(TrackerTimings.RecalibrateSettleMsJsl);
             _calibratedHeight = OpenVRReader.GetHMDHeight();
-            var value = Forwarded3DSDataManager.DeviceMap.ElementAt(_index);
-            _rotation = new Quaternion(value.Value.quatX, value.Value.quatY, value.Value.quatZ, value.Value.quatW);
-            _rotationCalibration = GetCalibration();
+            // Look up by IP, not by an _index that was never assigned. Previously every 3DS
+            // tracker pulled calibration from DeviceMap.ElementAt(0), so 2+ devices shared
+            // the first device's calibration regardless of which physical 3DS was sending.
+            if (Forwarded3DSDataManager.DeviceMap.TryGetValue(_ip, out var value)) {
+                _rotation = new Quaternion(value.quatX, value.quatY, value.quatZ, value.quatW);
+                _rotationCalibration = GetCalibration();
+            }
         }
         public void Rediscover() {
             udpHandler.Rehandshake();
@@ -113,6 +123,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public void Dispose() {
             _ready = false;
             _disconnected = true;
+            // Unsubscribe + dispose the UDP handler so re-init or app exit can re-bind cleanly
+            // and the manager's invocation list stops growing on every rotation.
+            try { Forwarded3DSDataManager.NewPacketReceived -= NewPacketReceived; } catch { }
+            try { udpHandler?.Dispose(); } catch { }
         }
 
         public Vector3 GetCalibration() {

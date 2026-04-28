@@ -20,7 +20,11 @@ TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
 SOURCES     :=  source
 DATA		:=	data
-INCLUDES    := C:/devkitPro/libogc/include
+INCLUDES    :=
+# Was hardcoded `C:/devkitPro/libogc/include` — broke any non-Windows / non-default
+# devkitPro install. The libogc Makefile fragment below already injects $(LIBOGC_INC)
+# from the LIBOGC env var, so leaving INCLUDES empty here gives us the right path on
+# every platform devkitPro supports.
 
 
 #---------------------------------------------------------------------------------

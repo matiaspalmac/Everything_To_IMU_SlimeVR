@@ -90,7 +90,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 					_firmwareId = "Wiimote_Tracker" + _rememberedStringId;
 					_motionStateList = ForwardedWiimoteManager.Wiimotes;
 					udpHandler = new UDPHandler(_firmwareId, _macAddressBytes,
-				 FirmwareConstants.BoardType.UNKNOWN, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.UNKNOWN, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 2);
+				 FirmwareConstants.BoardType.WRANGLER, FirmwareConstants.ImuType.UNKNOWN, FirmwareConstants.McuType.WRANGLER, FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 2);
 					udpHandler.Active = true;
 					_ = Recalibrate();
 					ForwardedWiimoteManager.NewPacketReceived += NewPacketReceived;
@@ -102,8 +102,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		}
 
 		private async void NewPacketReceived(object reference, string ip) {
-			if (_wiimoteClient == ip) {
-				await Update();
+			// async void event handler: any unhandled exception past the await would tear
+			// down the whole process. Wrap and route through OnTrackerError so the BLE /
+			// network stack glitches that show up as ObjectDisposedException after Dispose
+			// don't kill the app for every connected tracker.
+			try {
+				if (_wiimoteClient == ip) {
+					await Update();
+				}
+			} catch (Exception ex) {
+				try { OnTrackerError?.Invoke(this, ex.Message); } catch { }
 			}
 		}
 
@@ -121,6 +129,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 						}
 					} else if (!_isAlreadyUpdating) {
 						_isAlreadyUpdating = true;
+						try {
 						var hmdHeight = OpenVRReader.GetHMDHeight();
 						var trackerRotation = OpenVRReader.GetTrackerRotation(YawReferenceTypeValue);
 						float trackerEuler = trackerRotation.GetYawFromQuaternion();
@@ -202,7 +211,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 								_previousNunchuckAccelValue = shortVector;
 							}
 						}
-						_isAlreadyUpdating = false;
+						} finally {
+							// Always reset under finally — exception between flag set and clear
+							// previously left the tracker silently frozen forever.
+							_isAlreadyUpdating = false;
+						}
 					}
 				} catch (Exception e) {
 					OnTrackerError?.Invoke(this, e.StackTrace + "\r\n" + e.Message);
@@ -239,6 +252,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		public void Dispose() {
 			_ready = false;
 			_disconnected = true;
+			// Unsubscribe from the static NewPacketReceived event — without this every
+			// rotation through Recalibrate / disconnect cycle leaked one subscription that
+			// kept the tracker rooted forever via the manager's invocation list.
+			try { ForwardedWiimoteManager.NewPacketReceived -= NewPacketReceived; } catch { }
+			try { udpHandler?.Dispose(); } catch { }
 			_falseThighTracker?.Dispose();
 		}
 

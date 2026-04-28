@@ -189,7 +189,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                     // suppressed, append short controller hint for identification in logs.
                     string firmwareString = $"0.7.2-EverythingToIMU-{friendlyType.Replace(" ", "")}";
                     udpHandler = new UDPHandler(firmwareString, _macAddressBytes,
-                        FirmwareConstants.BoardType.CUSTOM, imuHint, FirmwareConstants.McuType.UNKNOWN,
+                        FirmwareConstants.BoardType.WRANGLER, imuHint, FirmwareConstants.McuType.WRANGLER,
                         FirmwareConstants.MagnetometerStatus.NOT_SUPPORTED, 1);
                     udpHandler.Active = true;
                     // Note on resets: SlimeVR server handles Reset/Full/Mounting entirely server-side.
@@ -296,6 +296,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 {
                     _debug =
                     $"Device Id: {macSpoof}\r\n" +
+                    $"Cal: {_sensorOrientation.IMUCalibrationDebug}\r\n" +
                     $"Euler Rotation:\r\n" +
                     $"X:{_euler.X}, Y:{_euler.Y}, Z:{_rotation.Z}" +
                     $"\r\nGyro:\r\n" +

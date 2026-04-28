@@ -75,9 +75,9 @@ public sealed class AppServices
     }
 
     public int TotalTrackerCount =>
-        GenericTrackerManager.TrackersBluetooth.Count +
-        GenericTrackerManager.Trackers3ds.Count +
-        GenericTrackerManager.TrackersWiimote.Count;
+        GenericTrackerManager.SnapshotBluetooth().Count +
+        GenericTrackerManager.Snapshot3ds().Count +
+        GenericTrackerManager.SnapshotWiimote().Count;
 
     public void Shutdown()
     {
@@ -106,9 +106,10 @@ public sealed class AppServices
 
     private static IEnumerable<IBodyTracker> EnumerateAllTrackers()
     {
-        foreach (var t in GenericTrackerManager.TrackersBluetooth) yield return t;
-        foreach (var t in GenericTrackerManager.TrackersWiimote) yield return t;
-        foreach (var t in GenericTrackerManager.Trackers3ds) yield return t;
+        foreach (var t in GenericTrackerManager.SnapshotBluetooth()) yield return t;
+        foreach (var t in GenericTrackerManager.SnapshotWiimote()) yield return t;
+        foreach (var t in GenericTrackerManager.Snapshot3ds()) yield return t;
+        foreach (var t in GenericTrackerManager.SnapshotJoyCon2()) yield return t;
     }
 }
 

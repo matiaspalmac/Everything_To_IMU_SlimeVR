@@ -8,9 +8,17 @@ using static Everything_To_IMU_SlimeVR.TrackerConfig;
 
 namespace Everything_To_IMU_SlimeVR.UI.ViewModels;
 
-public partial class TrackersViewModel : ObservableObject
+public partial class TrackersViewModel : ObservableObject, IDisposable
 {
     private readonly DispatcherTimer _refreshTimer;
+    // WPF Page instances stay in the navigation journal — `<vm:TrackersViewModel/>` in the
+    // page XAML constructs a fresh VM per visit, but Unload alone won't tear it down. Each
+    // navigate-back used to leak one 800 ms timer firing forever against an orphaned VM.
+    // TrackersPage.OnUnloaded calls Dispose so the timer actually stops.
+    public void Dispose()
+    {
+        try { _refreshTimer.Stop(); } catch { }
+    }
 
     public ObservableCollection<TrackerRow> Trackers { get; } = new();
 
@@ -149,11 +157,14 @@ public partial class TrackersViewModel : ObservableObject
     private void RefreshList()
     {
         var live = new List<(IBodyTracker tracker, TrackerKind kind)>();
-        foreach (var t in GenericTrackerManager.TrackersBluetooth) live.Add((t, TrackerKind.DualSense));
-        foreach (var t in GenericTrackerManager.TrackersJoyCon2) live.Add((t, TrackerKind.JoyCon2));
-        foreach (var t in GenericTrackerManager.TrackersWiimote) live.Add((t, TrackerKind.Wiimote));
-        foreach (var t in GenericTrackerManager.Trackers3ds) live.Add((t, TrackerKind.ThreeDs));
-        foreach (var kv in GenericTrackerManager.TrackersUdpHapticDevice) live.Add((kv.Value, TrackerKind.UdpHaptic));
+        // Snapshot under the registry lock — iterating the live List<T> directly raced
+        // background discovery / cleanup threads and threw InvalidOperationException
+        // ("collection was modified") on the UI thread.
+        foreach (var t in GenericTrackerManager.SnapshotBluetooth()) live.Add((t, TrackerKind.DualSense));
+        foreach (var t in GenericTrackerManager.SnapshotJoyCon2()) live.Add((t, TrackerKind.JoyCon2));
+        foreach (var t in GenericTrackerManager.SnapshotWiimote()) live.Add((t, TrackerKind.Wiimote));
+        foreach (var t in GenericTrackerManager.Snapshot3ds()) live.Add((t, TrackerKind.ThreeDs));
+        foreach (var kv in GenericTrackerManager.SnapshotUdpHaptic()) live.Add((kv.Value, TrackerKind.UdpHaptic));
 
         var existing = Trackers.ToDictionary(r => r.Tracker);
         var liveSet = live.Select(x => x.tracker).ToHashSet();

@@ -8,47 +8,57 @@ public class WiimoteStateTracker {
     private readonly GyroPreprocessor _gyroPreprocessor = new GyroPreprocessor();
     private readonly List<Vector3> _calibrationSamples = new();
     private bool _isCalibrating = false;
+    // ProcessPacket is called from ForwardedWiimoteManager.HandleClient per connection task.
+    // When two wiimotes route to the same WiimoteStateTracker (or when the same wiimote
+    // reconnects mid-frame) the unsynchronised _vqf null-check + create + Update can lose
+    // a VQFWrapper or hand both threads a half-initialised instance. _calibrationSamples
+    // is also a plain List<Vector3> and would throw "Collection was modified" under
+    // concurrent Add. Lock the whole pipeline.
+    private readonly object _stateLock = new();
 
     public WiimoteInfo ProcessPacket(WiimotePacket packet) {
         var info = new WiimoteInfo(packet);
-        if (_vqf == null) {
-            _vqf = new VQFWrapper(Configuration.Instance.WiiPollingRate / 1000f);
-        }
-        if (_isCalibrating) {
-            _calibrationSamples.Add(new Vector3(
-                info.WiimoteGyroX,
-                info.WiimoteGyroY,
-                info.WiimoteGyroZ));
-            if (_calibrationSamples.Count >= 100) {
-                _gyroPreprocessor.Calibrate(_calibrationSamples);
-                _isCalibrating = false;
+        lock (_stateLock) {
+            if (_vqf == null) {
+                _vqf = new VQFWrapper(Configuration.Instance.WiiPollingRate / 1000f);
             }
+            if (_isCalibrating) {
+                _calibrationSamples.Add(new Vector3(
+                    info.WiimoteGyroX,
+                    info.WiimoteGyroY,
+                    info.WiimoteGyroZ));
+                if (_calibrationSamples.Count >= 100) {
+                    _gyroPreprocessor.Calibrate(_calibrationSamples);
+                    _isCalibrating = false;
+                }
+            }
+
+            // Convert raw accel (assuming 0–1024 scale) to m/s²
+            Vector3 accel = new Vector3(
+                (info.WiimoteAccelX - 512) / 200.0f,
+                (info.WiimoteAccelY - 512) / 200.0f,
+                (info.WiimoteAccelZ - 512) / 200.0f) * 9.80665f;
+
+            // Process gyro and convert degrees/sec to radians/sec
+            Vector3 gyroCalibrated = _gyroPreprocessor.ProcessRawGyro(info.WiimoteGyroX, info.WiimoteGyroY, info.WiimoteGyroZ, 0.001065f);
+            Vector3 gyroRad = new Vector3(
+                gyroCalibrated.X,
+                gyroCalibrated.Y,
+                gyroCalibrated.Z);
+
+            // Update VQF filter
+            _vqf.Update((gyroRad).ToVQFDoubleArray(), accel.ToVQFDoubleArray());
+            var quatData = _vqf.GetQuat6D();
+            info.WiimoteFusedOrientation = new Quaternion(
+                (float)quatData[1], (float)quatData[2], (float)quatData[3], (float)quatData[0]);
         }
-
-        // Convert raw accel (assuming 0–1024 scale) to m/s²
-        Vector3 accel = new Vector3(
-            (info.WiimoteAccelX - 512) / 200.0f,
-            (info.WiimoteAccelY - 512) / 200.0f,
-            (info.WiimoteAccelZ - 512) / 200.0f) * 9.80665f;
-
-        // Process gyro and convert degrees/sec to radians/sec
-        Vector3 gyroCalibrated = _gyroPreprocessor.ProcessRawGyro(info.WiimoteGyroX, info.WiimoteGyroY, info.WiimoteGyroZ, 0.001065f);
-        Vector3 gyroRad = new Vector3(
-            gyroCalibrated.X,
-            gyroCalibrated.Y,
-            gyroCalibrated.Z);
-
-        // Update VQF filter
-        _vqf.Update((gyroRad).ToVQFDoubleArray(), accel.ToVQFDoubleArray());
-        var quatData = _vqf.GetQuat6D();
-        info.WiimoteFusedOrientation = new Quaternion(
-            (float)quatData[1], (float)quatData[2], (float)quatData[3], (float)quatData[0]);
-
         return info;
     }
 
     public void StartCalibration() {
-        _calibrationSamples.Clear();
-        _isCalibrating = true;
+        lock (_stateLock) {
+            _calibrationSamples.Clear();
+            _isCalibrating = true;
+        }
     }
 }

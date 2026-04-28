@@ -12,7 +12,7 @@ using SlimeImuProtocol.SlimeVR;
 
 namespace Everything_To_IMU_SlimeVR.Tracking
 {
-    public class UDPHapticDevice : IBodyTracker
+    public class UDPHapticDevice : IBodyTracker, IDisposable
     {
         private HapticNodeBinding _hapticNodeBinding;
         private PacketBuilder _packetBuilder;
@@ -24,6 +24,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         private RotationReferenceType _extensionYawReferenceTypeValue;
         DateTime _hapticEndTime;
         private float _lastIntensity;
+        private bool _disposed;
 
         public UDPHapticDevice(string ipAddress, string alias)
         {
@@ -60,37 +61,50 @@ namespace Everything_To_IMU_SlimeVR.Tracking
 
         public void DisableHaptics()
         {
+            if (_disposed) return;
             var data = _packetBuilder.BuildHapticPacket(0, 0);
-            _udpServer.SendAsync(data);
+            _ = SendSafelyAsync(data);
             _hapticEndTime = new DateTime();
         }
 
         public void EngageHaptics(int duration, float intensity)
         {
+            if (_disposed) return;
             _hapticEndTime = DateTime.Now.AddMilliseconds(duration);
             if (!isAlreadyVibrating || intensity != _lastIntensity)
             {
-                Task.Run(() =>
-                {
-                    var data = _packetBuilder.BuildHapticPacket(intensity, duration);
-                    _udpServer.SendAsync(data);
-                });
+                var data = _packetBuilder.BuildHapticPacket(intensity, duration);
+                _ = SendSafelyAsync(data);
                 _lastIntensity = intensity;
             }
             if (!isAlreadyVibrating)
             {
                 isAlreadyVibrating = true;
-                Task.Run(() =>
+                // Async wait — was Task.Run + Thread.Sleep(10), which parked a threadpool
+                // thread for the full duration. With multiple haptic devices the threadpool
+                // was permanently saturated.
+                _ = Task.Run(async () =>
                 {
-                    while (DateTime.Now < _hapticEndTime)
+                    try
                     {
-                        Thread.Sleep(10);
+                        var remaining = _hapticEndTime - DateTime.Now;
+                        if (remaining > TimeSpan.Zero) await Task.Delay(remaining);
+                        isAlreadyVibrating = false;
+                        if (_disposed) return;
+                        var stopData = _packetBuilder.BuildHapticPacket(0, 0);
+                        await SendSafelyAsync(stopData);
                     }
-                    isAlreadyVibrating = false;
-                    var data = _packetBuilder.BuildHapticPacket(0, 0);
-                    _udpServer.SendAsync(data);
+                    catch { isAlreadyVibrating = false; }
                 });
             }
+        }
+
+        // Wraps SendAsync so the dropped Task can't unobserved-exception leak into the
+        // TaskScheduler.UnobservedTaskException handler with a network-down failure.
+        // PacketBuilder returns ReadOnlyMemory<byte>; UdpClient supports it natively.
+        private async Task SendSafelyAsync(ReadOnlyMemory<byte> data)
+        {
+            try { await _udpServer.SendAsync(data); } catch { }
         }
 
         public Vector3 GetCalibration()
@@ -100,11 +114,17 @@ namespace Everything_To_IMU_SlimeVR.Tracking
 
         public void HapticIntensityTest()
         {
-            for (byte i = 0; i < 255; i++)
+            // Was a synchronous loop with Thread.Sleep(45) blocking for ~11 s on the caller.
+            // Move to a fire-and-forget async chain so the UI doesn't freeze when the user
+            // clicks Test.
+            _ = Task.Run(async () =>
             {
-                EngageHaptics(50, i / 255f);
-                Thread.Sleep(45);
-            }
+                for (byte i = 0; i < 255 && !_disposed; i++)
+                {
+                    EngageHaptics(50, i / 255f);
+                    await Task.Delay(45);
+                }
+            });
         }
 
         public void Identify()
@@ -122,6 +142,14 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         public override string ToString()
         {
             return !string.IsNullOrEmpty(_alias) ? _alias : _ipAddress;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { _udpServer?.Close(); } catch { }
+            try { _udpServer?.Dispose(); } catch { }
         }
     }
 }

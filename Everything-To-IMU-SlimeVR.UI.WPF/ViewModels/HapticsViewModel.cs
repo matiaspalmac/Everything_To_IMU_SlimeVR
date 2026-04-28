@@ -39,7 +39,9 @@ public partial class HapticsViewModel : ObservableObject
             return;
         }
         AppServices.Instance.TrackerManager.AddRemoteHapticDevice(NewIp, "");
-        AppServices.Instance.Configuration?.SaveConfig();
+        // SaveDebounced now actually writes (commit 3bb9d5d) — using it instead of
+        // SaveConfig keeps the click handler off a synchronous disk write on the UI thread.
+        AppServices.Instance.Configuration?.SaveDebounced();
         RefreshList();
         NewIp = "";
         SetStatus("Haptic device added.");
@@ -63,7 +65,11 @@ public partial class HapticsViewModel : ObservableObject
         if (dlg.ShowDialog() != true) return;
         try
         {
-            _player = new MidiHapticsPlayer(GenericTrackerManager.TrackersUdpHapticDevice.Values);
+            // Tear down any previously playing instance — without this, repeated Load MIDI
+            // clicks accumulated parallel NAudio playback streams + background threads.
+            try { _player?.Stop(); } catch { }
+            try { (_player as IDisposable)?.Dispose(); } catch { }
+            _player = new MidiHapticsPlayer(GenericTrackerManager.SnapshotUdpHaptic().Select(kv => kv.Value));
             _player.Load(dlg.FileName);
             _player.Play();
             SetStatus($"Playing MIDI: {Path.GetFileName(dlg.FileName)}");

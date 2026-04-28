@@ -7,9 +7,15 @@ using Everything_To_IMU_SlimeVR.UI.Services;
 
 namespace Everything_To_IMU_SlimeVR.UI.ViewModels;
 
-public partial class DebugViewModel : ObservableObject
+public partial class DebugViewModel : ObservableObject, IDisposable
 {
     private readonly DispatcherTimer _timer;
+    // See TrackersViewModel for rationale — DebugPage.OnUnloaded disposes us so the 50 ms
+    // refresh timer doesn't keep firing against an orphaned VM after navigation.
+    public void Dispose()
+    {
+        try { _timer.Stop(); } catch { }
+    }
 
     public ObservableCollection<IBodyTracker> AvailableTrackers { get; } = new();
 
@@ -84,11 +90,12 @@ public partial class DebugViewModel : ObservableObject
     private void RefreshAvailable()
     {
         var live = new List<IBodyTracker>();
-        foreach (var t in GenericTrackerManager.TrackersBluetooth) live.Add(t);
-        foreach (var t in GenericTrackerManager.TrackersWiimote) live.Add(t);
-        foreach (var t in GenericTrackerManager.Trackers3ds) live.Add(t);
-        foreach (var t in GenericTrackerManager.TrackersJoyCon2) live.Add(t);
-        foreach (var kv in GenericTrackerManager.TrackersUdpHapticDevice) live.Add(kv.Value);
+        // Snapshot — see TrackersViewModel.RefreshList for the race rationale.
+        foreach (var t in GenericTrackerManager.SnapshotBluetooth()) live.Add(t);
+        foreach (var t in GenericTrackerManager.SnapshotWiimote()) live.Add(t);
+        foreach (var t in GenericTrackerManager.Snapshot3ds()) live.Add(t);
+        foreach (var t in GenericTrackerManager.SnapshotJoyCon2()) live.Add(t);
+        foreach (var kv in GenericTrackerManager.SnapshotUdpHaptic()) live.Add(kv.Value);
 
         var liveSet = new HashSet<IBodyTracker>(live);
         for (int i = AvailableTrackers.Count - 1; i >= 0; i--)

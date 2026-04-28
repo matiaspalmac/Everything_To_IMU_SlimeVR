@@ -183,7 +183,7 @@ int main(int argc, char** argv) {
 					WPAD_SetMotionPlus(i, true);
 					formatSet[i] = true;
 					motionPlusState[i] = true;
-					usleep(500000); // 100ms delay for initialization	
+					usleep(500000); // 500 ms — settles MotionPlus before first read.
 				}
 
 				u32 pressed = WPAD_ButtonsUp(i);
@@ -438,12 +438,15 @@ int initialize_socket() {
 	}
 
 	persistent_sock = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-	int flag = 1;
-	net_setsockopt(persistent_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 	if (persistent_sock < 0) {
 		printf("Failed to create socket\n");
 		return -1;
 	}
+	// setsockopt was previously called BEFORE the validity check, which dereferenced
+	// fd = -1 when net_socket failed. Order swap keeps this safe under low-memory or
+	// network-down conditions on the Wii's libogc network stack.
+	int flag = 1;
+	net_setsockopt(persistent_sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
 	struct sockaddr_in dest;
 	memset(&dest, 0, sizeof(dest));
@@ -470,11 +473,19 @@ void send_http_post_binary(uint8_t* payload, int payload_len) {
 		}
 	}
 
-	if (net_write(persistent_sock, payload, payload_len) < 0) {
-		printf("Write failed, retrying socket...\n");
-		net_close(persistent_sock);
-		persistent_sock = -1;
-		return;
+	// TCP send loop — net_write may return fewer bytes than requested. Previously a
+	// partial write silently lost the tail of the payload (truncated 17-byte controller
+	// frames mismatched the C# parser's [Pack=1] struct and produced garbage IMU data).
+	int sent = 0;
+	while (sent < payload_len) {
+		int w = net_write(persistent_sock, payload + sent, payload_len - sent);
+		if (w <= 0) {
+			printf("Write failed, retrying socket...\n");
+			net_close(persistent_sock);
+			persistent_sock = -1;
+			return;
+		}
+		sent += w;
 	}
 
 	// Now read exactly 4 bytes of vibration data
@@ -507,7 +518,16 @@ void send_http_post_binary(uint8_t* payload, int payload_len) {
 				}
 			}
 		}
-		finalTargetFrameMs = (u32)vib_response[4];
+		// Clamp the host-supplied frame interval to a sane range. Without this an
+		// off-by-one or hostile host sending 0 produces a busy-loop at 100 % CPU
+		// (sleep_ms = finalTargetFrameMs - elapsed_ms underflows to a huge u32 that
+		// the surrounding `if (sleep_ms >= 1)` still admits as "1"; on 0 the entire
+		// branch is skipped → no sleep at all). 8..100 ms maps to 10..125 fps which
+		// covers the Wii's realistic input rate envelope.
+		u8 raw = vib_response[4];
+		if (raw < 8) raw = 8;
+		if (raw > 100) raw = 100;
+		finalTargetFrameMs = (u32)raw;
 	}
 }
 

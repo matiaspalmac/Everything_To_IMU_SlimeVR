@@ -57,32 +57,43 @@ public static class SonyImuCalibration
 
     public static Calibration GetCalibration(int controllerIndex)
     {
-        lock (_lock)
+        try
         {
-            try
-            {
-                var all = DeviceList.Local.GetHidDevices()
-                    .Where(d => d.VendorID == SonyVid)
-                    .Where(d => d.ProductID == DualSensePid || d.ProductID == DualSenseEdgePid
-                             || d.ProductID == DualShock4V1Pid || d.ProductID == DualShock4V2Pid
-                             || d.ProductID == DualShockDonglePid)
-                    .GroupBy(d => d.DevicePath.Split('#').Take(3).Aggregate((a, b) => a + "#" + b))
-                    .Select(g => g.First())
-                    .ToList();
+            // Enumeration is cheap; do it outside the lock so 4 controllers don't queue
+            // behind each other. Lock only protects the shared _cache dictionary access.
+            var all = DeviceList.Local.GetHidDevices()
+                .Where(d => d.VendorID == SonyVid)
+                .Where(d => d.ProductID == DualSensePid || d.ProductID == DualSenseEdgePid
+                         || d.ProductID == DualShock4V1Pid || d.ProductID == DualShock4V2Pid
+                         || d.ProductID == DualShockDonglePid)
+                .GroupBy(d => d.DevicePath.Split('#').Take(3).Aggregate((a, b) => a + "#" + b))
+                .Select(g => g.First())
+                .ToList();
 
-                if (controllerIndex < 0 || controllerIndex >= all.Count) return Unknown;
-                var device = all[controllerIndex];
-                var key = device.DevicePath;
+            if (controllerIndex < 0 || controllerIndex >= all.Count) return Unknown;
+            var device = all[controllerIndex];
+            var key = device.DevicePath;
+            lock (_lock)
+            {
                 if (_cache.TryGetValue(key, out var cached)) return cached;
+            }
 
-                var cal = ReadFromDevice(device);
-                _cache[key] = cal;
-                return cal;
-            }
-            catch
+            // Device I/O (Open + GetFeature, up to 500 ms timeout each) is the expensive
+            // part; do it without holding the global lock. Two concurrent first-time reads
+            // for different controllers used to serialise here, adding ~2 s of head-of-line
+            // blocking to startup with 4 trackers paired.
+            var cal = ReadFromDevice(device);
+            lock (_lock)
             {
-                return Unknown;
+                // Last-writer-wins is fine — both threads are reading from the same physical
+                // device and computing the same cal block. Cache the result and return.
+                _cache[key] = cal;
             }
+            return cal;
+        }
+        catch
+        {
+            return Unknown;
         }
     }
 

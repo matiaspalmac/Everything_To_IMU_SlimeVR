@@ -401,6 +401,10 @@ namespace Everything_To_IMU_SlimeVR.Tracking
         {
             lock (_registryLock) return _trackersJoyCon2.ToArray();
         }
+        public static IReadOnlyList<KeyValuePair<string, UDPHapticDevice>> SnapshotUdpHaptic()
+        {
+            lock (_registryLock) return _trackersUdpHapticDevice.ToArray();
+        }
         public static int ControllerCount { get => _controllerCount; set => _controllerCount = value; }
         public int PollingRate { get => pollingRate; set => pollingRate = value; }
         public static bool DebugOpen { get; set; }

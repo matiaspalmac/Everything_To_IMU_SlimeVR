@@ -85,15 +85,39 @@ public partial class MainWindowViewModel : ObservableObject
         dlg.ShowDialog();
     }
 
+    // Reentry guard for the 2 s status probe. SlimeVR is unreachable + retry → IsUp() can
+    // exceed the 2 s tick interval, two RefreshStatusAsync chains race writing the same
+    // observable fields. _refreshing makes the second tick skip until the first completes.
+    private int _refreshing;
+
     public MainWindowViewModel()
     {
         SlimeVrStatusText = L("Str.Status.SlimeChecking");
         SlimeVrStatusBrush = GrayBrush;
         OscStatusBrush = GrayBrush;
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _statusTimer.Tick += async (_, _) => await RefreshStatusAsync();
+        _statusTimer.Tick += OnStatusTick;
         _statusTimer.Start();
         _ = RefreshStatusAsync();
+    }
+
+    private async void OnStatusTick(object? sender, EventArgs e)
+    {
+        // Skip if a previous probe is still in flight. Atomic CAS avoids reentry.
+        if (System.Threading.Interlocked.Exchange(ref _refreshing, 1) == 1) return;
+        try { await RefreshStatusAsync(); }
+        catch { }
+        finally { System.Threading.Interlocked.Exchange(ref _refreshing, 0); }
+    }
+
+    /// <summary>
+    /// Stop the background probe timer. Call from MainWindow.Closed so ticks don't keep
+    /// firing during AppServices.Shutdown's config flush.
+    /// </summary>
+    public void StopBackgroundWork()
+    {
+        try { _statusTimer.Stop(); } catch { }
+        try { _statusTimer.Tick -= OnStatusTick; } catch { }
     }
 
     public void OnLanguageChanged() => _ = RefreshStatusAsync();
