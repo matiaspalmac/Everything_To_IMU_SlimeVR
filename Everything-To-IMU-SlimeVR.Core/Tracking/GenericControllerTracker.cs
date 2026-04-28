@@ -296,6 +296,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking
                 {
                     _debug =
                     $"Device Id: {macSpoof}\r\n" +
+                    $"Cal: {_sensorOrientation.IMUCalibrationDebug}\r\n" +
                     $"Euler Rotation:\r\n" +
                     $"X:{_euler.X}, Y:{_euler.Y}, Z:{_rotation.Z}" +
                     $"\r\nGyro:\r\n" +

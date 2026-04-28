@@ -48,6 +48,27 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private readonly GyroBiasCalibrator _biasCal = new GyroBiasCalibrator();
         public bool GyroBiasCalibrated => _biasCal.HasBias;
         public Vector3 GyroBias => _biasCal.Bias;
+
+        /// <summary>
+        /// One-line summary of every calibration / bias-compensation layer applied to this
+        /// sensor. Surfaced verbatim in the debug page so a user reporting drift can show
+        /// whether their controller is running on factory cal, online bias estimation, JSL
+        /// stillness, or none of the above.
+        /// </summary>
+        public string IMUCalibrationDebug
+        {
+            get
+            {
+                int ctype = -1; try { ctype = JSL.JslGetControllerType(_index); } catch { }
+                string spiCal = _hidImuReaderActive ? JoyCon1HidImuReader.CalStatusFor(_index) : "n/a";
+                Vector3 jslOffset = Vector3.Zero;
+                try { JSL.JslGetCalibrationOffset(_index, ref jslOffset.X, ref jslOffset.Y, ref jslOffset.Z); } catch { }
+                var bias = _biasCal.Bias;
+                return $"ctype:{ctype} hid:{(_hidImuReaderActive ? "on" : "off")} spi:{spiCal} jsl-still:{(_jslStillnessEnabled ? "on" : "off")} " +
+                       $"jsl-offset(rad/s):({jslOffset.X:F4},{jslOffset.Y:F4},{jslOffset.Z:F4}) " +
+                       $"bias-cal:{(_biasCal.HasBias ? "on" : "off")} bias(rad/s):({bias.X:F4},{bias.Y:F4},{bias.Z:F4})";
+            }
+        }
         // Single lock guarding _vqf state. HID reader thread (200 Hz) and JSL callback
         // thread can both race on _vqf.UpdateFast / _accelerometer / _gyro under high tracker
         // counts (4 JC1 + phone observed) — VQF's native side is not thread-safe.

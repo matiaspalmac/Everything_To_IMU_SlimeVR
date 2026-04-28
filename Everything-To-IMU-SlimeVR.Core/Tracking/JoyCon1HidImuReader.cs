@@ -62,6 +62,10 @@ public static class JoyCon1HidImuReader
 
     private record Worker(HidDevice Device, HidStream Stream, Thread Thread, CancellationTokenSource Cts);
     private static readonly ConcurrentDictionary<int, Worker> _workers = new();
+    // Cal status keyed by JSL index. Populated by RunReader once the SPI read completes;
+    // surfaces in the debug view so a user reporting drift can see whether their controller
+    // is running on factory cal, user-override cal, or the nominal fallback.
+    private static readonly ConcurrentDictionary<int, string> _calStatus = new();
     private static readonly object _startLock = new();
 
     /// <summary>
@@ -69,6 +73,9 @@ public static class JoyCon1HidImuReader
     /// uses this flag to short-circuit JSL's redundant IMU callback.
     /// </summary>
     public static bool IsActiveFor(int jslIndex) => _workers.ContainsKey(jslIndex);
+
+    /// <summary>"factory-spi", "user-spi", "nominal-fallback", or "—" when no reader attached.</summary>
+    public static string CalStatusFor(int jslIndex) => _calStatus.TryGetValue(jslIndex, out var s) ? s : "—";
 
     /// <summary>
     /// Try to attach a HID reader thread to the Nth Switch-family device. Returns false if
@@ -123,6 +130,7 @@ public static class JoyCon1HidImuReader
     public static void Stop(int jslIndex)
     {
         if (!_workers.TryRemove(jslIndex, out var w)) return;
+        _calStatus.TryRemove(jslIndex, out _);
         try { w.Cts.Cancel(); } catch { }
         try { w.Stream.Dispose(); } catch { }
     }
@@ -154,6 +162,14 @@ public static class JoyCon1HidImuReader
         var gyroOrigin = cal.GyroOrigin;
         var accelCoeff = cal.AccelCoeff;
         var gyroCoeff = cal.GyroCoeff;
+        // Surface the cal source in the debug page. JoyCon1SpiCalibration tries user override
+        // first then factory; we can't tell them apart from out here without re-running the
+        // read, but Valid=true with origin near zero is a strong signal of factory cal whereas
+        // a non-zero origin tilt is typical of user-override cal that's been recalibrated.
+        _calStatus[jslIndex] = cal.Valid
+            ? (Math.Abs(cal.AccelOrigin.X) > 50f || Math.Abs(cal.AccelOrigin.Y) > 50f
+               ? "user-spi" : "factory-spi")
+            : "nominal-fallback";
 
         while (!ct.IsCancellationRequested)
         {
