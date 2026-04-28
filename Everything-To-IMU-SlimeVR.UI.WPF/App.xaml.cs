@@ -85,8 +85,13 @@ public partial class App : Application
             AutoUpdater.UpdateMode = Mode.Normal;
             // Parse <checksum> field ourselves (AutoUpdater.NET does not handle non-standard
             // children). Stored for use by ApplicationExitEvent hook that runs after download
-            // completes and before the package replaces the running exe.
-            _expectedChecksumSha256 = TryFetchExpectedChecksum(UpdateManifestUrl);
+            // completes and before the package replaces the running exe. Run on the
+            // threadpool — the previous synchronous fetch on the UI thread blocked the
+            // splash for up to 10 s on slow / hijacked DNS.
+            _ = System.Threading.Tasks.Task.Run(() =>
+            {
+                _expectedChecksumSha256 = TryFetchExpectedChecksum(UpdateManifestUrl);
+            });
             AutoUpdater.ApplicationExitEvent += VerifyDownloadedZip;
             AutoUpdater.Start(UpdateManifestUrl);
         }

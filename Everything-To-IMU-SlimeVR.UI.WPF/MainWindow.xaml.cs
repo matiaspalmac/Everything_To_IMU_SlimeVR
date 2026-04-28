@@ -20,6 +20,15 @@ public partial class MainWindow : FluentWindow
         AppServices.Instance.BatteryLowAlert += OnBatteryLow;
         AppServices.Instance.TrackerConnected += OnTrackerConnected;
         AppServices.Instance.TrackerDisconnected += OnTrackerDisconnected;
+        // AppServices is process-lifetime — without explicit unsubscribe, every recreated
+        // window stays rooted forever via its invocation list. Closed fires on real shutdown
+        // (TrayExit forces _forceExit then Close), at which point we no longer want toasts.
+        Closed += (_, _) =>
+        {
+            try { AppServices.Instance.BatteryLowAlert -= OnBatteryLow; } catch { }
+            try { AppServices.Instance.TrackerConnected -= OnTrackerConnected; } catch { }
+            try { AppServices.Instance.TrackerDisconnected -= OnTrackerDisconnected; } catch { }
+        };
     }
 
     private static bool NotificationsOn() =>

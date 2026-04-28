@@ -84,11 +84,12 @@ public partial class DebugViewModel : ObservableObject
     private void RefreshAvailable()
     {
         var live = new List<IBodyTracker>();
-        foreach (var t in GenericTrackerManager.TrackersBluetooth) live.Add(t);
-        foreach (var t in GenericTrackerManager.TrackersWiimote) live.Add(t);
-        foreach (var t in GenericTrackerManager.Trackers3ds) live.Add(t);
-        foreach (var t in GenericTrackerManager.TrackersJoyCon2) live.Add(t);
-        foreach (var kv in GenericTrackerManager.TrackersUdpHapticDevice) live.Add(kv.Value);
+        // Snapshot — see TrackersViewModel.RefreshList for the race rationale.
+        foreach (var t in GenericTrackerManager.SnapshotBluetooth()) live.Add(t);
+        foreach (var t in GenericTrackerManager.SnapshotWiimote()) live.Add(t);
+        foreach (var t in GenericTrackerManager.Snapshot3ds()) live.Add(t);
+        foreach (var t in GenericTrackerManager.SnapshotJoyCon2()) live.Add(t);
+        foreach (var kv in GenericTrackerManager.SnapshotUdpHaptic()) live.Add(kv.Value);
 
         var liveSet = new HashSet<IBodyTracker>(live);
         for (int i = AvailableTrackers.Count - 1; i >= 0; i--)

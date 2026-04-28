@@ -149,11 +149,14 @@ public partial class TrackersViewModel : ObservableObject
     private void RefreshList()
     {
         var live = new List<(IBodyTracker tracker, TrackerKind kind)>();
-        foreach (var t in GenericTrackerManager.TrackersBluetooth) live.Add((t, TrackerKind.DualSense));
-        foreach (var t in GenericTrackerManager.TrackersJoyCon2) live.Add((t, TrackerKind.JoyCon2));
-        foreach (var t in GenericTrackerManager.TrackersWiimote) live.Add((t, TrackerKind.Wiimote));
-        foreach (var t in GenericTrackerManager.Trackers3ds) live.Add((t, TrackerKind.ThreeDs));
-        foreach (var kv in GenericTrackerManager.TrackersUdpHapticDevice) live.Add((kv.Value, TrackerKind.UdpHaptic));
+        // Snapshot under the registry lock — iterating the live List<T> directly raced
+        // background discovery / cleanup threads and threw InvalidOperationException
+        // ("collection was modified") on the UI thread.
+        foreach (var t in GenericTrackerManager.SnapshotBluetooth()) live.Add((t, TrackerKind.DualSense));
+        foreach (var t in GenericTrackerManager.SnapshotJoyCon2()) live.Add((t, TrackerKind.JoyCon2));
+        foreach (var t in GenericTrackerManager.SnapshotWiimote()) live.Add((t, TrackerKind.Wiimote));
+        foreach (var t in GenericTrackerManager.Snapshot3ds()) live.Add((t, TrackerKind.ThreeDs));
+        foreach (var kv in GenericTrackerManager.SnapshotUdpHaptic()) live.Add((kv.Value, TrackerKind.UdpHaptic));
 
         var existing = Trackers.ToDictionary(r => r.Tracker);
         var liveSet = live.Select(x => x.tracker).ToHashSet();
