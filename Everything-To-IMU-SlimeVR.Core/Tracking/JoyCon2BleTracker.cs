@@ -86,6 +86,13 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         private byte[] _macAddressBytes;
         private UDPHandler _udpHandler;
         private VQFWrapper _vqf;
+        // Guards _vqf lifetime against the dispose-vs-update race. WinRT delivers BLE
+        // notifications on a thread-pool thread that can fire after _disconnected has been
+        // set but before the OS has actually cancelled queued callbacks; if Dispose runs
+        // concurrently with a notify, the native VQF handle gets freed mid-update and the
+        // next read AVs. Lock both the update path and the disposal path so the IntPtr is
+        // never accessed after VQF_Destroy.
+        private readonly object _vqfLock = new object();
         private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
         private readonly List<float> _averageSampleSeconds = new();
         private long _lastSampleTicks;
@@ -568,29 +575,34 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 }
 
                 // Adaptive VQF init using the average inter-sample dt of the first 200 packets,
-                // mirroring SensorOrientation's strategy for the JSL path.
+                // mirroring SensorOrientation's strategy for the JSL path. Lock guards the
+                // create/use/destroy sequence — see _vqfLock declaration above.
                 long now = _stopwatch.ElapsedTicks;
-                if (_vqf == null) {
-                    if (_lastSampleTicks > 0) {
-                        float dt = (float)((now - _lastSampleTicks) / (double)Stopwatch.Frequency);
-                        if (dt > 0 && dt < 0.1f) _averageSampleSeconds.Add(dt);
+                lock (_vqfLock)
+                {
+                    if (_disposed) return;
+                    if (_vqf == null) {
+                        if (_lastSampleTicks > 0) {
+                            float dt = (float)((now - _lastSampleTicks) / (double)Stopwatch.Frequency);
+                            if (dt > 0 && dt < 0.1f) _averageSampleSeconds.Add(dt);
+                        }
+                        _lastSampleTicks = now;
+                        if (_averageSampleSeconds.Count >= 200) {
+                            _vqf = new VQFWrapper(_averageSampleSeconds.Average());
+                            _averageSampleSeconds.Clear();
+                        }
+                        return; // not yet emitting orientation
                     }
-                    _lastSampleTicks = now;
-                    if (_averageSampleSeconds.Count >= 200) {
-                        _vqf = new VQFWrapper(_averageSampleSeconds.Average());
-                        _averageSampleSeconds.Clear();
-                    }
-                    return; // not yet emitting orientation
-                }
 
-                _imuSampleCount++;
-                if (_magValid) {
-                    _vqf.UpdateIdentity9D(_gyroRad, _accel, _mag);
-                    _rotation = _vqf.GetQuat9DFast();
-                    _magUsedSamples++;
-                } else {
-                    _vqf.UpdateIdentity(_gyroRad, _accel);
-                    _rotation = _vqf.GetQuat6DFast();
+                    _imuSampleCount++;
+                    if (_magValid) {
+                        _vqf.UpdateIdentity9D(_gyroRad, _accel, _mag);
+                        _rotation = _vqf.GetQuat9DFast();
+                        _magUsedSamples++;
+                    } else {
+                        _vqf.UpdateIdentity(_gyroRad, _accel);
+                        _rotation = _vqf.GetQuat6DFast();
+                    }
                 }
                 // Jitter EWMA — same formula as JSL path so values are directly comparable
                 // in the debug page.
@@ -742,7 +754,15 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
             _disconnected = true;
             try { _inputChar.ValueChanged -= OnInputCharValueChanged; } catch { }
             try { _device.ConnectionStatusChanged -= OnConnectionStatusChanged; } catch { }
-            try { _vqf?.Dispose(); } catch { }
+            // VQF destruction must serialize with the BLE notify path. Without the lock the
+            // notify callback can be mid-UpdateIdentity9D when VQF_Destroy frees the native
+            // IntPtr, dereferencing freed memory on the next gyr/acc/mag write.
+            VQFWrapper toDispose;
+            lock (_vqfLock) {
+                toDispose = _vqf;
+                _vqf = null;
+            }
+            try { toDispose?.Dispose(); } catch { }
             try { _udpHandler?.Dispose(); } catch { }
             try { _device?.Dispose(); } catch { }
         }

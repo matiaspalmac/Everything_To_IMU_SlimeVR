@@ -123,7 +123,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                 // current trade favours preserving that estimate.
                 lock (_vqfLock)
                 {
-                    if (_vqf == null) return;
+                    if (disposed || _vqf == null) return;
                     _accelerometer = rawAccel;
                     _gyro = rawGyroRad;
                     Update();
@@ -136,6 +136,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         }
 
         private void SensorOrientation_OnNewJSLData(object? sender, Tuple<int, JSL.JOY_SHOCK_STATE, JSL.JOY_SHOCK_STATE, JSL.IMU_STATE, JSL.IMU_STATE, float> e) {
+            if (disposed) return;
             try {
                 if (e.Item1 == _index) {
                     int ctype = JSL.JslGetControllerType(_index);
@@ -231,6 +232,7 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
                     lock (_vqfLock)
                     {
+                        if (disposed) return;
                         _accelerometer = rawAccel;
                         _gyro = rawGyroRad;
 
@@ -293,10 +295,20 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
         public void Dispose() {
             disposed = true;
             try { JoyCon1HidImuReader.SampleReady -= OnJoyCon1HidSample; } catch { }
+            try { OnNewJSLData -= SensorOrientation_OnNewJSLData; } catch { }
             if (_hidImuReaderActive)
             {
                 try { JoyCon1HidImuReader.Stop(_index); } catch { }
             }
+            // Drain any in-flight Update under the lock before tearing down VQF, so a JSL
+            // callback that observed disposed=false a microsecond earlier completes against
+            // the live IntPtr instead of a freed one.
+            VQFWrapper toDispose;
+            lock (_vqfLock) {
+                toDispose = _vqf;
+                _vqf = null;
+            }
+            try { toDispose?.Dispose(); } catch { }
         }
     }
 }
