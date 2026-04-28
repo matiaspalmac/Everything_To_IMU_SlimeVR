@@ -38,7 +38,7 @@ public partial class OscViewModel : ObservableObject
         }
         cfg.OscIpAddress = IpAddress;
         cfg.PortInput = InputPort;
-        cfg.SaveConfig();
+        cfg.SaveDebounced();
         AppServices.Instance.TrackerManager.RefreshOscPort();
         SetStatus("OSC config applied.");
     }
@@ -65,7 +65,7 @@ public partial class OscViewModel : ObservableObject
         }
         OutputPorts.Add(port);
         cfg.PortOutputs.Add(port);
-        cfg.SaveConfig();
+        cfg.SaveDebounced();
         NewOutputPort = "";
         SetStatus($"Output port {port} added.");
     }
@@ -77,7 +77,7 @@ public partial class OscViewModel : ObservableObject
         if (cfg == null) return;
         OutputPorts.Remove(port);
         cfg.PortOutputs.Remove(port);
-        cfg.SaveConfig();
+        cfg.SaveDebounced();
         SetStatus($"Output port {port} removed.");
     }
 

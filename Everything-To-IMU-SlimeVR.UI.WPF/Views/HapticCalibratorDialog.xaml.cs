@@ -17,7 +17,15 @@ public partial class HapticCalibratorDialog : FluentWindow
         InitializeComponent();
         _tracker = tracker;
         _pulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(90) };
-        _pulseTimer.Tick += (_, _) => { try { _tracker.EngageHaptics(90, _intensity); } catch { } };
+        // Skip the pulse when the slider hasn't been touched yet — without this guard the
+        // dialog spammed EngageHaptics(90, 0) the moment it opened, which on Joy-Con / DS5
+        // BT wakes the rumble subsystem (and adds load to a BT stack we already audit for
+        // pressure under 4× JC1 + phone).
+        _pulseTimer.Tick += (_, _) =>
+        {
+            if (_intensity <= 0f) return;
+            try { _tracker.EngageHaptics(90, _intensity); } catch { }
+        };
         _pulseTimer.Start();
         Closed += (_, _) => _pulseTimer.Stop();
     }
