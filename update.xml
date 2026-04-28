@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <item>
-  <version>0.3.0.0</version>
-  <url>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/download/v0.3.0/Everything-To-IMU-SlimeVR-v0.3.0.zip</url>
-  <changelog>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases</changelog>
+  <version>0.4.0.0</version>
+  <url>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/download/v0.4.0/Everything-To-IMU-SlimeVR-v0.4.0.zip</url>
+  <changelog>https://github.com/matiaspalmac/Everything_To_IMU_SlimeVR/releases/tag/v0.4.0</changelog>
   <mandatory>false</mandatory>
   <!--
     SHA-256 checksum of the zip asset above. AutoUpdater verifies this before running the
-    downloaded package. Populated by the release workflow; release v0.2.0 predates the
-    verification field so legacy installs won't have it — absence treated as "skip verify"
-    but a loud warning is logged. Starting with v0.2.1 every release will include this.
+    downloaded package. Mismatch is fatal — the package is discarded and the user is told
+    the update was rejected.
   -->
-  <checksum algorithm="SHA256">702347d0edb97ae2378b4c46546cc53c568167eaf28535fe7373cede31658bcc</checksum>
+  <checksum algorithm="SHA256">0d9b16fde05e185a59a1fd491cd5e3b8b421d11f8123f05fed3aab6f674aca20</checksum>
 </item>

@@ -149,7 +149,7 @@ public partial class App : Application
             if (string.IsNullOrWhiteSpace(_expectedChecksumSha256))
             {
                 LogUpdate("Checksum missing from update.xml — skipping verification (insecure). " +
-                          "This will be treated as a fatal error starting with v0.3.0.");
+                          "This will be treated as a fatal error in a future release.");
                 return;
             }
             var candidates = Directory.EnumerateFiles(AppDomain.CurrentDomain.BaseDirectory, "Everything-To-IMU-SlimeVR-*.zip")
