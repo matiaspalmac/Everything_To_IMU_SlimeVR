@@ -72,17 +72,29 @@ namespace Everything_To_IMU_SlimeVR
 
         public void SaveConfig()
         {
-            // Serialize against simultaneous saves (timer fire + FlushPendingSave on shutdown
-            // can race; previously File.WriteAllText sometimes hit "process cannot access the
-            // file" with the second writer winning a torn write). Concurrent mutation of the
-            // config dictionaries by the UI thread during serialisation can still throw
-            // InvalidOperationException — callers wrap this in try/catch so the next debounced
-            // save retries cleanly rather than crashing the app.
+            // Serialize against simultaneous saves AND retry on collection-modified-during-
+            // enumeration. UI thread can mutate _controllerMounts / _calibrationConfigurations
+            // while the serializer walks them; Newtonsoft throws InvalidOperationException
+            // on that race. Snapshot under the save lock with a defensive copy so the
+            // serializer iterates a private list, not the live one.
             lock (_saveLock)
             {
                 _lastConfigSave = DateTime.UtcNow;
                 string savePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-                File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    try
+                    {
+                        File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+                        return;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Mid-mutation race — back off briefly and retry. After 3 attempts
+                        // we give up and let the next SaveDebounced try again.
+                        System.Threading.Thread.Sleep(50);
+                    }
+                }
             }
         }
 
@@ -203,6 +215,7 @@ namespace Everything_To_IMU_SlimeVR
                 } catch
                 {
                 }
+                if (values != null) HealNullCollections(values);
                 Instance = values;
                 return Instance = (values == null ? new Configuration()
                 {
@@ -219,6 +232,26 @@ namespace Everything_To_IMU_SlimeVR
                     }
                 };
             }
+        }
+
+        /// <summary>
+        /// Newtonsoft will happily produce a Configuration with null collections when the
+        /// user hand-edits config.json and breaks one field, or when an older schema is
+        /// missing entries we added later. The first downstream Add/TryGetValue then NREs
+        /// before we reach any UI. Re-init every collection field that came back null so
+        /// the rest of the app never has to null-check.
+        /// </summary>
+        private static void HealNullCollections(Configuration v)
+        {
+            v._trackerConfigs ??= new();
+            v._trackerConfig3ds ??= new();
+            v._trackerConfigWiimote ??= new();
+            v._trackerConfigNunchuck ??= new();
+            v._trackerConfigUdpHaptics ??= new();
+            v._calibrationConfigurations ??= new();
+            v._controllerMounts ??= new();
+            v._portOutputs ??= new();
+            v._joyCon2KnownAddresses ??= new();
         }
     }
 }
