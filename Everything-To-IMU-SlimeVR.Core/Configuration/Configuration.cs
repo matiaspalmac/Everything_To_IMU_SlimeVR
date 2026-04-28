@@ -68,11 +68,22 @@ namespace Everything_To_IMU_SlimeVR
             try { SaveDebounced(); } catch { }
         }
 
+        [JsonIgnore] private readonly object _saveLock = new();
+
         public void SaveConfig()
         {
-            _lastConfigSave = DateTime.UtcNow;
-            string savePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-            File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+            // Serialize against simultaneous saves (timer fire + FlushPendingSave on shutdown
+            // can race; previously File.WriteAllText sometimes hit "process cannot access the
+            // file" with the second writer winning a torn write). Concurrent mutation of the
+            // config dictionaries by the UI thread during serialisation can still throw
+            // InvalidOperationException — callers wrap this in try/catch so the next debounced
+            // save retries cleanly rather than crashing the app.
+            lock (_saveLock)
+            {
+                _lastConfigSave = DateTime.UtcNow;
+                string savePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                File.WriteAllText(savePath, JsonConvert.SerializeObject(this));
+            }
         }
 
         // Debounce interval — slider drags, rapid clicks coalesce into one write. Max data loss
@@ -92,9 +103,13 @@ namespace Everything_To_IMU_SlimeVR
             {
                 if (_saveDebounceTimer == null)
                 {
+                    // Timer fires SaveConfig directly. The previous implementation called
+                    // SaveDebounced from the timer callback, which re-armed the timer instead
+                    // of writing — so mount yaw, gyro trim, and JoyCon2KnownAddresses never
+                    // persisted across sessions despite the README promising they did.
                     _saveDebounceTimer = new System.Threading.Timer(_ =>
                     {
-                        try { SaveDebounced(); } catch { }
+                        try { SaveConfig(); } catch { }
                     });
                 }
                 _saveDebounceTimer.Change(SaveDebounceMs, System.Threading.Timeout.Infinite);
@@ -108,9 +123,12 @@ namespace Everything_To_IMU_SlimeVR
         {
             lock (_saveDebounceLock)
             {
+                // Cancel the pending timer so it can't race the synchronous save below and
+                // overwrite the file we just wrote with the same content (or worse, with a
+                // partially-mutated dictionary if a UI write lands between here and SaveConfig).
                 _saveDebounceTimer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             }
-            try { SaveDebounced(); } catch { }
+            try { SaveConfig(); } catch { }
         }
         public TimeSpan TimeSinceLastConfig()
         {
