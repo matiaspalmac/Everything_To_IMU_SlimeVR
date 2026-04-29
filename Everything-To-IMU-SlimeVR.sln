@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Everything-To-IMU-SlimeVR.C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Everything-To-IMU-SlimeVR.UI.WPF", "Everything-To-IMU-SlimeVR.UI.WPF\Everything-To-IMU-SlimeVR.UI.WPF.csproj", "{86DA0870-ED2B-460B-9E25-91D7C2A24873}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SlimeImuProtocol.Tests", "SlimeImuProtocol\SlimeImuProtocol.Tests\SlimeImuProtocol.Tests.csproj", "{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{86DA0870-ED2B-460B-9E25-91D7C2A24873}.Release|x64.Build.0 = Release|x64
 		{86DA0870-ED2B-460B-9E25-91D7C2A24873}.Release|x86.ActiveCfg = Release|Any CPU
 		{86DA0870-ED2B-460B-9E25-91D7C2A24873}.Release|x86.Build.0 = Release|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Debug|x64.Build.0 = Debug|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Debug|x86.Build.0 = Debug|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Release|x64.ActiveCfg = Release|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Release|x64.Build.0 = Release|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Release|x86.ActiveCfg = Release|Any CPU
+		{AF1EEA06-FB9B-45CF-B701-8DE32E65704A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
