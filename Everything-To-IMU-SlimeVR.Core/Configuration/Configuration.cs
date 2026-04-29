@@ -203,6 +203,14 @@ namespace Everything_To_IMU_SlimeVR
             c.GyroScaleTrim = trim;
             try { SaveDebounced(); } catch { }
         }
+        // Hard cap on config.json. The legitimate file is a few KB; anything past 1 MB is
+        // either a corrupt write, a malicious blob aimed at OOMing the deserializer, or
+        // a deeply-nested JSON bomb. Reject before we hand bytes to Newtonsoft.
+        private const long MaxConfigBytes = 1L * 1024 * 1024;
+        // Newtonsoft default has no depth cap; a pathological file with thousands of nested
+        // arrays/objects can stack-overflow the parser. 16 covers our schema with margin.
+        private const int MaxConfigDepth = 16;
+
         public static Configuration LoadConfig()
         {
             string openPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
@@ -211,9 +219,24 @@ namespace Everything_To_IMU_SlimeVR
                 Configuration values = null;
                 try
                 {
-                    values = JsonConvert.DeserializeObject<Configuration>(File.ReadAllText(openPath));
-                } catch
+                    var info = new FileInfo(openPath);
+                    if (info.Length > MaxConfigBytes)
+                    {
+                        Console.Error.WriteLine($"[Configuration] config.json is {info.Length} bytes, exceeds {MaxConfigBytes}. Refusing to load; defaults will be used.");
+                    }
+                    else
+                    {
+                        var text = File.ReadAllText(openPath);
+                        var settings = new JsonSerializerSettings { MaxDepth = MaxConfigDepth };
+                        values = JsonConvert.DeserializeObject<Configuration>(text, settings);
+                    }
+                }
+                catch (Exception ex)
                 {
+                    // Surface the parse failure instead of silently resetting to defaults —
+                    // historically a hand-edit typo nuked the user's whole configuration with
+                    // zero feedback. Console output reaches crash.log via stderr redirection.
+                    Console.Error.WriteLine($"[Configuration] Failed to parse config.json: {ex.Message}");
                 }
                 if (values != null) HealNullCollections(values);
                 Instance = values;

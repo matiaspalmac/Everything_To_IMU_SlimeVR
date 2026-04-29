@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Xml.Linq;
 using AutoUpdaterDotNET;
@@ -11,6 +12,54 @@ namespace Everything_To_IMU_SlimeVR.UI;
 
 public partial class App : Application
 {
+    // Crash + update logs were originally written next to the .exe. That path is read-only
+    // when the app is installed under Program Files, and stack traces routinely embed
+    // BLE addresses (Joy-Con 2 reconnect failures, etc.) which leak controller MACs into
+    // any file the user shares for support. Move logs to %LOCALAPPDATA% and run every
+    // payload through a MAC redactor on the way in.
+    private static readonly string LogDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "EverythingToImuSlimeVR", "logs");
+
+    private static readonly Regex BluetoothAddressRegex = new(
+        @"\b(?:bluetoothAddress|BluetoothAddress|MAC|address)\s*[:=]\s*[0-9A-Fa-f]{12}\b",
+        RegexOptions.Compiled);
+    // Bare 12-hex tokens (`X12` formatted MACs) and colon/dash-separated MACs.
+    private static readonly Regex BareMacRegex = new(
+        @"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b|\b[0-9A-Fa-f]{12}\b",
+        RegexOptions.Compiled);
+
+    private static string GetLogPath(string fileName)
+    {
+        try { Directory.CreateDirectory(LogDirectory); } catch { }
+        return Path.Combine(LogDirectory, fileName);
+    }
+
+    private static string Redact(string payload)
+    {
+        if (string.IsNullOrEmpty(payload)) return payload;
+        try
+        {
+            // BluetoothAddressRegex first so the labelled form ("bluetoothAddress:0123ABCDEF12")
+            // collapses to a single token rather than leaving the label dangling next to
+            // <redacted-mac>. Both replacements use the same sentinel.
+            payload = BluetoothAddressRegex.Replace(payload, "<redacted-mac>");
+            payload = BareMacRegex.Replace(payload, "<redacted-mac>");
+            return payload;
+        }
+        catch { return payload; }
+    }
+
+    private static void AppendCrashLog(string label, string body)
+    {
+        try
+        {
+            var log = GetLogPath("crash.log");
+            File.AppendAllText(log, $"[{DateTime.UtcNow:O}] {label}: {Redact(body)}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -20,29 +69,18 @@ public partial class App : Application
         // Bluetooth stack) vanishes mid-run. Log + swallow so the app stays alive.
         AppDomain.CurrentDomain.UnhandledException += (_, ev) =>
         {
-            try
-            {
-                var log = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
-                File.AppendAllText(log, $"[{DateTime.UtcNow:O}] UnhandledException: {ev.ExceptionObject}{Environment.NewLine}");
-            }
-            catch { }
+            AppendCrashLog("UnhandledException", ev.ExceptionObject?.ToString() ?? "<null>");
         };
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, ev) =>
         {
-            try
-            {
-                var log = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
-                File.AppendAllText(log, $"[{DateTime.UtcNow:O}] UnobservedTaskException: {ev.Exception}{Environment.NewLine}");
-                ev.SetObserved();
-            }
-            catch { }
+            AppendCrashLog("UnobservedTaskException", ev.Exception?.ToString() ?? "<null>");
+            ev.SetObserved();
         };
         DispatcherUnhandledException += (_, ev) =>
         {
             try
             {
-                var log = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
-                File.AppendAllText(log, $"[{DateTime.UtcNow:O}] DispatcherException: {ev.Exception}{Environment.NewLine}");
+                AppendCrashLog("DispatcherException", ev.Exception?.ToString() ?? "<null>");
                 ev.Handled = true;
                 // First time per session, surface a non-blocking toast so the user knows
                 // their UI hit something unexpected and can grab crash.log. Previously we
@@ -146,17 +184,31 @@ public partial class App : Application
         // naming pattern. If AutoUpdater.NET changes its layout this fallback still works.
         try
         {
-            if (string.IsNullOrWhiteSpace(_expectedChecksumSha256))
-            {
-                LogUpdate("Checksum missing from update.xml — skipping verification (insecure). " +
-                          "This will be treated as a fatal error in a future release.");
-                return;
-            }
             var candidates = Directory.EnumerateFiles(AppDomain.CurrentDomain.BaseDirectory, "Everything-To-IMU-SlimeVR-*.zip")
                 .OrderByDescending(File.GetLastWriteTimeUtc)
                 .ToList();
-            if (candidates.Count == 0) { LogUpdate("Verify: no downloaded zip found"); return; }
-            var path = candidates[0];
+            string? path = candidates.Count == 0 ? null : candidates[0];
+
+            if (string.IsNullOrWhiteSpace(_expectedChecksumSha256))
+            {
+                // Missing checksum is now fatal. The previous behaviour ("skip verification
+                // (insecure)") is a TOFU footgun: an attacker who can serve update.xml without
+                // the <checksum> element can ship arbitrary code via the auto-updater. Refuse
+                // to apply the zip, scrub it from disk, and surface the failure so the user
+                // knows the update was rejected.
+                LogUpdate("Checksum missing from update.xml — refusing to apply update.");
+                if (path != null)
+                {
+                    try { File.Delete(path); } catch (Exception delEx) { LogUpdate($"Failed to delete unverified zip: {delEx.Message}"); }
+                }
+                MessageBox.Show(
+                    "The update package could not be verified because update.xml does not include a checksum. " +
+                    "The download was discarded and the running version will continue to be used.",
+                    "Update verification failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Environment.Exit(1);
+                return;
+            }
+            if (path == null) { LogUpdate("Verify: no downloaded zip found"); return; }
             string actual;
             using (var sha = SHA256.Create())
             using (var fs = File.OpenRead(path))
@@ -184,8 +236,8 @@ public partial class App : Application
     {
         try
         {
-            var log = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update.log");
-            File.AppendAllText(log, $"[{DateTime.UtcNow:O}] {msg}{Environment.NewLine}");
+            var log = GetLogPath("update.log");
+            File.AppendAllText(log, $"[{DateTime.UtcNow:O}] {Redact(msg)}{Environment.NewLine}");
         }
         catch { }
     }

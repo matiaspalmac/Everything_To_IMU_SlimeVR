@@ -224,6 +224,21 @@ namespace Everything_To_IMU_SlimeVR.AudioHaptics {
                 _capture.Dispose();
                 _capture = null;
             }
+
+            // Unregister + dispose the device-change watcher and the MMDeviceEnumerator.
+            // Both wrap COM proxies; leaving them undisposed keeps a reference to the
+            // audio endpoint manager and leaks RPC channels every time the monitor is
+            // restarted (settings toggle, default-device change, etc).
+            if (_enumerator != null) {
+                try {
+                    if (_deviceWatcher != null) {
+                        _enumerator.UnregisterEndpointNotificationCallback(_deviceWatcher);
+                    }
+                } catch { }
+                try { _enumerator.Dispose(); } catch { }
+                _enumerator = null;
+            }
+            _deviceWatcher = null;
         }
 
         private void OnData(object? sender, WaveInEventArgs e) {

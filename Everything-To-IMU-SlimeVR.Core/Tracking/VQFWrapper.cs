@@ -1,6 +1,12 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
+// Pin native DLL resolution to the assembly directory + System32 so a hostile DLL
+// dropped into the working directory (or a shared download folder the user runs the
+// exe from) cannot pre-empt vqf.dll / JoyShockLibrary.dll. Applies to every P/Invoke
+// in this assembly.
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+
 public class VQFWrapper : IDisposable {
     private IntPtr handle;
     private readonly double[] _gyrBuf = new double[3];

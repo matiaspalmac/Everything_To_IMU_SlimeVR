@@ -22,7 +22,9 @@ namespace Everything_To_IMU_SlimeVR.Osc
         private UdpClient _oscClient;
 
         private CancellationTokenSource _cancelTokenSource = new();
-        private Task _oscReceiveTask;
+        // Initialised so disposal before the first RefreshOSCPort cannot NRE. Replaced
+        // with the live receive task on every port refresh.
+        private Task _oscReceiveTask = Task.CompletedTask;
 
         private readonly AxHaptics _axHaptics;
         private readonly bHaptics _bHaptics;
