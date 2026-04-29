@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stripped = $tag.TrimStart('v')
+          "version=$stripped" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag"           | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Restore
+        run: dotnet restore Everything-To-IMU-SlimeVR.sln
+
+      - name: Build (Release)
+        run: dotnet build Everything-To-IMU-SlimeVR.sln -c Release --no-restore /warnaserror
+
+      - name: Publish single-file win-x64
+        run: >
+          dotnet publish Everything-To-IMU-SlimeVR.UI.WPF/Everything-To-IMU-SlimeVR.UI.WPF.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish/
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $zip = "Everything-To-IMU-SlimeVR-${{ steps.ver.outputs.tag }}-win-x64.zip"
+          Compress-Archive -Path publish/* -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $zip" | Out-File "$zip.sha256.txt" -Encoding ascii
+          "zip=$zip"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "sha256=$hash"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: pack
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.pack.outputs.zip }}
+            ${{ steps.pack.outputs.zip }}.sha256.txt
+          body: |
+            Automated release build.
+
+            **SHA-256:** `${{ steps.pack.outputs.sha256 }}`
+
+            Update `update.xml` checksum field with the value above before publishing the release so the auto-updater accepts the package. Missing checksums are now a fatal error in the verifier.
