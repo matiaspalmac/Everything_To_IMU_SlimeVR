@@ -29,10 +29,27 @@ public partial class App : Application
         @"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b|\b[0-9A-Fa-f]{12}\b",
         RegexOptions.Compiled);
 
+    // Hard cap before we rotate. 10 MB is generous for a stack-trace log; legitimate
+    // crash bursts produce a few KB and a single log session worth of update.log entries
+    // is sub-MB. Past 10 MB we have either a feedback loop (logging an exception inside
+    // an exception handler) or an attacker padding the file to chew disk.
+    private const long LogRotationBytes = 10L * 1024 * 1024;
+
     private static string GetLogPath(string fileName)
     {
         try { Directory.CreateDirectory(LogDirectory); } catch { }
-        return Path.Combine(LogDirectory, fileName);
+        var path = Path.Combine(LogDirectory, fileName);
+        try { RotateIfOversized(path); } catch { }
+        return path;
+    }
+
+    private static void RotateIfOversized(string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length < LogRotationBytes) return;
+        var rotated = path + ".1";
+        try { if (File.Exists(rotated)) File.Delete(rotated); } catch { }
+        try { File.Move(path, rotated); } catch { /* next append re-creates path */ }
     }
 
     private static string Redact(string payload)

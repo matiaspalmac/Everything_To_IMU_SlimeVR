@@ -79,7 +79,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
                     float trackerEuler = trackerRotation.GetYawFromQuaternion();
                     var value = Forwarded3DSDataManager.DeviceMap[_ip];
                     _rotation = new Quaternion(value.quatX, value.quatY, value.quatZ, value.quatW);
-                    _euler = _rotation.QuaternionToEuler();
+                    // Apply the rotation calibration captured at Recalibrate(). Without this
+                    // the cal was computed and stored but never reached the SetSensorRotation
+                    // path (audit 3DS1) — every recalibrate effectively did nothing for the
+                    // non-TrustDeviceYaw modes.
+                    _euler = _rotation.QuaternionToEuler() + _rotationCalibration;
 
                     if (GenericTrackerManager.DebugOpen) {
                         _debug =

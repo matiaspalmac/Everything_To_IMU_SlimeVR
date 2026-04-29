@@ -140,7 +140,11 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 						}
 						var wiimoteRotation = value.MotionPlusSupport != 0 ? value.WiimoteFusedOrientation : value.WiimoteGravityOrientation;
 						var eulerUncalibrated = wiimoteRotation.QuaternionToEuler();
-						var euler = eulerUncalibrated;
+						// Apply the wiimote rotation calibration captured during Recalibrate().
+						// Cal is stored as the negated baseline euler, so adding it zeroes out
+						// the pose at calibration time. Without this, the cal was loaded but
+						// never reached the SetSensorRotation path (audit W1).
+						var euler = eulerUncalibrated + _wiimoteRotationCalibration;
 						if (GenericTrackerManager.DebugOpen) {
 							_debug =
 							$"Device Id: {macSpoof}\r\n" +
@@ -168,14 +172,18 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 	(value.WiimoteAccelX / 512f) * accelerationMultiplier,
 	(value.WiimoteAccelY / 512f) * accelerationMultiplier,
 	(value.WiimoteAccelZ / 512f) * accelerationMultiplier), 0);
-						//if (HasSignificantAccelChange(shortVector, _previousWiimoteAccelValue, 5f)) {
+						// The HasSignificantAccelChange gate around the wiimote rotation send
+						// was commented out long ago; the gate was kept for the nunchuck branch
+						// because the Wiimote-only stream is decoded via the WiiClient companion
+						// at a fixed cadence and we want every sample through. Removed the dead
+						// code so future readers don't re-enable it without checking the
+						// nunchuck path (audit W3).
 						if (_yawReferenceTypeValue == RotationReferenceType.TrustDeviceYaw) {
 							await udpHandler.SetSensorRotation(wiimoteRotation, 0);
 						} else {
 							await udpHandler.SetSensorRotation(new Vector3(finalX, finalY, _lastEulerPositon).ToQuaternion(), 0);
 						}
 						_previousWiimoteAccelValue = shortVector;
-						//}
 
 						if (value.NunchukConnected != 0) {
 							if (YawReferenceTypeValue != ExtensionYawReferenceTypeValue) {
@@ -185,7 +193,9 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 							}
 							var nunchuckRotation = value.NunchuckOrientation;
 							eulerUncalibrated = nunchuckRotation.QuaternionToEuler();
-							euler = eulerUncalibrated;
+							// Same pattern as the wiimote: cal stored negated, so addition
+							// removes the offset captured at recalibrate time.
+							euler = eulerUncalibrated + _nunchuckRotationCalibration;
 							if (GenericTrackerManager.DebugOpen) {
 								_debug +=
 								$"\r\n\r\nNunchuck" +
@@ -237,6 +247,16 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 
 			rotation = wiimoteInfo.NunchuckOrientation;
 			_nunchuckRotationCalibration = -rotation.QuaternionToEuler();
+			// Persist the wiimote calibration per-MAC so it survives a relaunch (audit W2).
+			// Nunchuck cal is intentionally session-only — it depends on how the user is
+			// holding the extension at recalibrate time, which is rarely identical between
+			// sessions, and SlimeVR Server's reset gestures handle the rest.
+			try {
+				if (Configuration.Instance != null && !string.IsNullOrEmpty(macSpoof)) {
+					Configuration.Instance.CalibrationConfigurations[macSpoof] = _wiimoteRotationCalibration;
+					Configuration.Instance.SaveDebounced();
+				}
+			} catch { }
 			if (ForwardedWiimoteManager.WiimoteTrackers.TryGetValue(_rememberedStringId, out var stateTracker)) {
 				stateTracker.StartCalibration();
 			}
@@ -261,7 +281,17 @@ namespace Everything_To_IMU_SlimeVR.Tracking {
 		}
 
 		public Vector3 GetCalibration() {
-			return new Vector3();
+			// Return the persisted per-MAC cal if it was saved within the recent debounce
+			// window (matches the 3DS pattern and avoids handing back stale data after a
+			// long idle), otherwise fall back to whatever is in memory from this session.
+			try {
+				if (Configuration.Instance != null && !string.IsNullOrEmpty(macSpoof)
+					&& Configuration.Instance.TimeSinceLastConfig().TotalSeconds < 10
+					&& Configuration.Instance.CalibrationConfigurations.TryGetValue(macSpoof, out var saved)) {
+					return saved;
+				}
+			} catch { }
+			return _wiimoteRotationCalibration;
 		}
 
 		public void Identify() {

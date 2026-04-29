@@ -59,6 +59,11 @@ public class ThreeDsStateTracker {
                     gyroX = value.gx, gyroY = value.gy, gyroZ = value.gz
                 };
             }
+            // 3DS LSM330DLC is mounted with the screen vertical, so the device accel axes
+            // map (X right, Y up-screen, Z out-of-screen). VQF expects (X right, Y forward,
+            // Z up) — swap Y↔Z so the accelerometer aligns with the fusion convention.
+            // The Z output here is the raw device-Y (up-screen) component, and Y output is
+            // the raw device-Z (out-of-screen) component (audit 3DS2).
             var accel = new Vector3(((float)value.ax * divisionValue),
                 ((float)value.az * divisionValue),
                 ((float)value.ay * divisionValue));
