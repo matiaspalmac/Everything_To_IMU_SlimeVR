@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.4.1 — 2026-04-30
+
+Hotfix release. Trackers stopped appearing in the SlimeVR Server dashboard
+after v0.4.0 — local UDP state initialised correctly but the server silently
+dropped every packet that arrived past the initial handshake.
+
+### SlimeVR protocol
+
+- **Re-handshake on the swapped UDP socket so the server registers the new
+  source port.** Regression introduced in the v0.4.0 staging window: when
+  ReceiveLoop accepted the discovery reply on the broadcast socket, it swapped
+  to a unicast UdpClient targeted at the resolved server IP and immediately
+  marked the handler initialised. The new socket has a fresh ephemeral source
+  port; the server keys tracker identity on `(clientIp, sourcePort)`, so
+  SENSOR_INFO / heartbeat / rotation packets sent from the new port arrived
+  without a prior HANDSHAKE on that port and were silently dropped. Trackers
+  built local UDP state and reported "server reachable" but never appeared in
+  the dashboard. Two-step discovery now: first reply triggers the swap and
+  resends HANDSHAKE on the new socket, gated by `_endpointPinned`; the
+  server's reply to that second handshake completes initialisation. Verified
+  with DualSense + Joy-Con 2 against a clean SlimeVR Server.
+
+### Hardening (carried from v0.4.1 prep — security pass)
+
+- DLL hijack mitigation: native DLL search restricted to `AssemblyDirectory`
+  + `System32` via assembly-level `DefaultDllImportSearchPaths`.
+- Auto-updater: missing checksum is now fatal — no more "skipping
+  verification (insecure)" path that let unsigned zips through.
+- Configuration loader: 1 MB cap on `config.json`, JSON depth limit 16.
+- Crash + update logs moved to `%LOCALAPPDATA%`, MAC-redacted before disk
+  write.
+
 ## v0.4.0 — 2026-04-28
 
 Big stability + correctness pass driven by user feedback (4× JC1 + phone setup
